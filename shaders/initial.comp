@@ -1,8 +1,97 @@
+#line 2
 layout(std430, binding = 0) buffer Buffer_Palette { vec4 palette[]; };
+layout(std430, binding = 1) buffer Buffer_Material { Material material[]; };
+layout(std430, binding = 2) buffer Buffer_Light { Light light[]; };
+
+FnSceneMapStub;
 
 void main() {
 	uint i = gl_GlobalInvocationID.x*8 + gl_GlobalInvocationID.y;
 	if (i >= 256u) return;
 	palette[i] = vec4(float(i) / 255.0, float(i) / 255.0, float(i) / 255.0, 1.0);
 	palette[i] = pow(palette[i], vec4(2.2));
+
+	// -- light
+	if (i == 0u) {
+		light[0].ori = f32v3(NOR3(0.88, 0.86, 0.63));
+		light[0].nor = normalize(knob3Nor);
+		light[0].halfExtent = f32v2(1.19, 0.19);
+		light[0].emission = vec3(1.0, 1.0, 1.0) * 50.0;
+
+		light[1].emission = vec3(-100.0f);
+	}
+
+	// -- material
+
+	#define albedoMult IPI
+	// -- material setup, just one thread
+	if (i == 0u) {
+		material[0].albedo = vec3(0.11f, 0.55f, 0.21f) * albedoMult;
+		material[0].alpha = 0.0;
+		material[0].diffuse = 1.0;
+		material[0].transmittive = 0.0;
+		material[0].fresnel = 1.0;
+
+		material[1].albedo = vec3(0.63f, 0.17f, 0.85f) * albedoMult;
+		material[1].alpha = 0.84;
+		material[1].diffuse = 0.07;
+		material[1].transmittive = 0.0;
+		material[1].fresnel = 0.84;
+
+		material[2].albedo = vec3(0.19, 0.09, 0.03) * albedoMult;
+		material[2].alpha = 1.0;
+		material[2].diffuse = 1.0;
+		material[2].transmittive = 0.0;
+		material[2].fresnel = 1.0;
+
+		material[3].albedo = vec3(0.19, 0.09, 0.03) * albedoMult;
+		material[3].alpha = 1.0;
+		material[3].diffuse = 1.0;
+		material[3].transmittive = 0.0;
+		material[3].fresnel = 1.0;
+
+		material[4].albedo = vec3(0.99, 0.03, 0.01) * albedoMult;
+		material[4].alpha = 1.0;
+		material[4].diffuse = 1.0;
+		material[4].transmittive = 0.0;
+		material[4].fresnel = 1.0;
+
+		material[5].albedo = vec3(0.36, 0.29, 0.01) * albedoMult;
+		material[5].alpha = 1.0;
+		material[5].diffuse = 0.001;
+		material[5].transmittive = 0.0;
+		material[5].fresnel = 0.84;
+
+		material[6].albedo = vec3(0.36, 0.29, 0.01) * albedoMult;
+		material[6].alpha = 1.0;
+		material[6].diffuse = 1.0;
+		material[6].transmittive = 0.0;
+		material[6].fresnel = 1.0;
+
+		material[7].albedo = vec3(0.17, 0.4, 0.9) * albedoMult;
+		material[7].alpha = 1.0;
+		material[7].diffuse = 1.0;
+		material[7].transmittive = 0.0;
+		material[7].fresnel = 1.0;
+	}
+
+	#define TUNE_MATERIAL_ALBEDO 1
+	#define TUNE_MATERIAL_SURFACE 2
+
+	#define TUNE_MATERIAL_ID 0
+	#define TUNE_MATERIAL 0
+
+	#if TUNE_MATERIAL == TUNE_MATERIAL_ALBEDO
+	if (i == 0u) {
+		material[TUNE_MATERIAL_ID].albedo = vec3(uKnob0, uKnob1, uKnob2);
+	}
+	#endif
+
+	#if TUNE_MATERIAL == TUNE_MATERIAL_SURFACE
+	if (i == 0u) {
+		material[TUNE_MATERIAL_ID].alpha = uKnob2;
+		material[TUNE_MATERIAL_ID].diffuse = uKnob1;
+		material[TUNE_MATERIAL_ID].fresnel = uKnob0;
+	}
+	#endif
 }

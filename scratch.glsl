@@ -422,8 +422,10 @@ float3 Sample_Emitter ( int I, float3 O, inout float seed ) {
 }
 
 float REmit_PDF ( int I, float3 On, float3 wo, float dist ) {
-  float SA = length(lights[I].radius);
-  return ((1.0/SA) * (abs(dot(lights[I].N, wo)*dot(On, wo))))/SQR(dist);
+	const Light l = lights[I];
+	const f32 area = 4.0f * l.halfExtent.x * l.halfExtent.y;
+	const f32 dotNorWo = abs(dot(l.nor, wo));
+	return (dist * dist) / (area * max(dotNorWo, 0.001f));
 }
 
 bool Valid_Emitter ( int I, in float3 wo ) {
@@ -473,68 +475,6 @@ float r2(float phi)
      return supershape_r(phi, 1.0, 1.0, 1.0, 1.0, 1.0, 3.0);
 }
 
-float BSDF_PDF ( float3 N, float3 wi, float3 wo, Material mat ) {
-  if ( mat.transmittive > 0.0 ) {
-    float3 NN = refract(wi, N, mat.transmittive);
-    if ( dot(wo, NN) < cos(mat.alpha) ) return -1.0;
-    return 1.0;
-  }
-  float3 H = normalize(wi+wo);
-  float theta = dot(H, N);
-  float k = mat.alpha*mat.alpha;
-  float pdf;
-  pdf = (k*k*theta)/(PI*sqr((k-1.0)*sqr(theta) + 1.0));
-
-  pdf = (pdf/(4.0 * max(dot(H, N), dot(wi, N)) * dot(wo, N)));
-  return pdf*(1.0 - mat.diffuse) + PDF_Cosine_Hemisphere(wo, N)*mat.diffuse;
-}
-
-float3 BSDF_Sample ( float3 N, float3 wi, float3 P, Material mat, out float pdf,
-                     inout float seed) {
-  if ( mat.transmittive > 0.0 ) {
-    return refract(wi, N, mat.transmittive);
-  }
-  float diff_chance = Sample_Uniform(seed);
-  if ( diff_chance < mat.diffuse ) {
-    return Sample_Cos_Hemisphere(wi, N, pdf, seed);
-  }
-  float2 xi = Sample_Uniform2(seed);
-  float k = mat.alpha*mat.alpha;
-  float phi   = TAU * xi.x,
-        theta = asin( sqrt( ( k*log(1.0-xi.y) )/( k*log(1.0-xi.y)-1.0 )));
-  float3 wo = Reorient_Hemisphere(normalize(To_Cartesian(theta, phi)), N);
-  pdf = PDF_Cosine_Hemisphere(wi, N);
-  return wo;
-}
-
-float GTerm ( in float3 N, in float3 V, in float k ) {
-  return (dot(N, V))/( (dot(N, V)*(1.0 - k) + k));
-}
-
-float3 BSDF_F ( float3 N, float3 wi, float3 wo, Material mat ) {
-  if ( mat.transmittive > 0.0 ) {
-    return IPI*mat.colour;
-  }
-  wi = -wi;
-
-  float3 X, Y;
-  Calculate_XY(N, X, Y);
-  float3 H = normalize(wi+wo);
-
-  float D, G, F;
-
-  float k = mat.alpha*mat.alpha;
-
-  D = k/(PI*pow((k-1.0)*sqr(dot(N, H))+1.0, 2.0));
-  k = mat.alpha*sqrt(2.0*IPI);
-  G = GTerm(N, wi, k)*GTerm(N, wo, k);
-  F = mat.fresnel + (1.0-mat.fresnel)*pow(1.0 - dot(wi, H), 5.0);
-
-
-  float3 refl = float3(G*D*F)/(4.0*dot(wi, N)*max(dot(wi, N), dot(H, N)));
-  float diffuse = mat.diffuse;
-  return diffuse*IPI*mat.colour + (1.0-diffuse)*refl*mat.colour;
-}
 
 int Illumination ( inout float3 O, float3 N, float3 wi, inout float3 bsdf_wo,
                    Material mat, inout float3 radiance,

@@ -1,11 +1,29 @@
-#line 1
+#line 2
 layout(std430, binding = 0) buffer Buffer_GBuffer {
 	GBuffer data[];
 };
+layout(std430, binding = 1) buffer Buffer_Light { Light inLight[]; };
 
-uniform float uKnob0;
-uniform float uKnob1;
-uniform float uKnob2;
+f32v2 fnSceneMapLights(f32v3 o) {
+	f32v2 res = f32v2(999999.0f, -1.0f);
+	for (int i = 0; i < skLightsMax; ++i) {
+		if (
+			   inLight[i].emission.x <= 0.0f
+			&& inLight[i].emission.y <= 0.0f
+			&& inLight[i].emission.z <= 0.0f
+		) {
+			break;
+		}
+		const Light l = inLight[i];
+		const f32v3 up = (
+			l.nor.y > 0.99f ? f32v3(0.0, 0.0, 1.0) : f32v3(0.0, 1.0, 0.0)
+		);
+		const f32v3 ori = inverse(fnLookAt(l.nor, up)) * (o - l.ori);
+
+		Union(res, sdBox(ori, f32v3(0.01, l.halfExtent)), 100.0 + float(i));
+	}
+	return res;
+}
 
 void main() {
 	// for now just write dummy data
@@ -16,31 +34,32 @@ void main() {
 
 	// -- reconstruct UV
 	vec2 uv = -1.0f + 2.0f * (vec2(px) + 0.5f) / vec2(skResolution);
+	uv.x /= skResolution.y / float(skResolution.x);
 
 	// -- construct seed
 	float seed = fract(float(linearIdx) + 1.0f);
 
 	// -- primary ray
-	f32 wrapX = uKnob0*6.28318;
-	Ray eye = fnLookAtRay(uv, f32v3(cos(wrapX), uKnob1, sin(wrapX))*8.0, f32v3(-1.0, 0.0, 0.0));
+#if 0
+	f32 wrapX = 0.13*TAU;
+	f32 wrapY = 0.69;
+	f32 wrapZ = 0.23;
+#else
+	f32 wrapX = uKnob2*TAU;
+	f32 wrapY = uKnob1;
+	f32 wrapZ = uKnob0;
+#endif
+	f32v3 cameraOri = f32v3(cos(wrapX), wrapY, sin(wrapX))*wrapZ*32.0;
+	Ray eye = fnLookAtRay(uv, cameraOri, f32v3(-1.0, 0.5, 0.0));
 
-	// march into scene
+	// -- march into scene
 	f32v2 hit = fnSceneMarch(eye);
+	f32v3 ori = eye.ori + eye.dir * hit.x;
 
-	f32v3 col = vec3(0.0f);
-	if (hit.x > 0.0f) {
-		// for now just encode the origin as color
-		// just do a simple lambertian shading for now
-		f32v3 albedo = f32v3(
-			fract(hit.y*1.123912),
-			fract(hit.y*2.123912),
-			fract(hit.y*3.123912)
-		);
-		albedo += f32v3(0.2f);
-		f32v3 normal = fnSceneNormal(eye.ori + hit.x*eye.dir);
-		f32v3 lightDir = normalize(f32v3(0.5f, 1.0f, 0.5f));
-		col = albedo * max(dot(normal, lightDir), 0.0f);
-	}
-
-	data[linearIdx].ori = vec4(col, 1.0f);
+	// -- store results
+	data[linearIdx].ori = ori;
+	data[linearIdx].nor = fnSceneNormal(ori);
+	data[linearIdx].hitDist = hit.x;
+	data[linearIdx].materialId = hit.y;
+	data[linearIdx].wi = eye.dir;
 }

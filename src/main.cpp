@@ -34,8 +34,8 @@ static void setup_controls() {
 i32 main(i32, char * *) {
 	IntroConfig config {
 		.title = "intro",
-		.width = 1280,
-		.height = 720,
+		.width = skResolutionX,
+		.height = skResolutionY,
 		.localSize = 8,
 		.vsync = true,
 		.hotReload = true,
@@ -53,7 +53,7 @@ i32 main(i32, char * *) {
 		.doubleBuffered = false,
 	};
 	IntroImageDesc const imgDescHistory {
-		.doubleBuffered = true,
+		.doubleBuffered = false,
 	};
 	IntroImageDesc const imgDescPresent {
 		.doubleBuffered = false,
@@ -69,17 +69,25 @@ i32 main(i32, char * *) {
 		.bytes = 256 * sizeof(float) * 4,
 	};
 
-	// 
+	IntroBufferDesc const bufDescMaterials {
+		.bytes = sizeof(Material) * 256,
+	};
+	IntroBufferDesc const bufDescLights {
+		.bytes = sizeof(Light) * 256,
+	};
+
 	IntroBufferDesc const bufDescGbuffer {
-		.bytes = sizeof(GBuffer) * 1280 * 720,
+		.bytes = sizeof(GBuffer) * skResolutionX * skResolutionY,
 	};
 	IntroBufferDesc const bufDescRadiance {
-		.bytes = sizeof(vec4) * 1280 * 720,
+		.bytes = sizeof(vec4) * skResolutionX * skResolutionY,
 	};
 
 	IntroBuffer const bufPalette = intro_add_buffer(&bufDescPalette);
 	IntroBuffer const bufGbuffer = intro_add_buffer(&bufDescGbuffer);
 	IntroBuffer const bufRadiance = intro_add_buffer(&bufDescRadiance);
+	IntroBuffer const bufMaterials = intro_add_buffer(&bufDescMaterials);
+	IntroBuffer const bufLights = intro_add_buffer(&bufDescLights);
 
 	// -- create passes
 	// initial -> [gbuffer | propagate bounces | temporal accumulate | postproc]
@@ -91,30 +99,30 @@ i32 main(i32, char * *) {
 		.gx = 1, .gy = 1, .gz = 1,
 		.write = INTRO_NONE,
 		.readCount = 0,
-		.buffers = { bufPalette },
-		.bufferCount = 1,
+		.buffers = { bufPalette, bufMaterials, bufLights, },
+		.bufferCount = 3,
 	};
 	IntroPassDesc const passGbuffer {
 		.name = "gbuffer",
 		.embedded = nullptr, // TODO embed
 		.sched = IntroSchedule_EveryFrame,
-		.dispatch = IntroDispatch_Explicit,
-		.gx = 1280 / 8, .gy = 720 / 8, .gz = 1,
+		.dispatch = IntroDispatch_Image,
+		.localX = 8, .localY = 8,
 		.write = INTRO_NONE,
 		.readCount = 0,
-		.buffers = { bufGbuffer },
-		.bufferCount = 1,
+		.buffers = { bufGbuffer, bufLights, },
+		.bufferCount = 2,
 	};
 	IntroPassDesc const passPropagate {
 		.name = "propagate",
 		.embedded = nullptr, // TODO embed
 		.sched = IntroSchedule_EveryFrame,
-		.dispatch = IntroDispatch_Explicit,
-		.gx = 1280 / 8, .gy = 720 / 8, .gz = 1,
+		.dispatch = IntroDispatch_Image,
+		.localX = 8, .localY = 8,
 		.write = INTRO_NONE,
 		.readCount = 0,
-		.buffers = { bufGbuffer, bufRadiance },
-		.bufferCount = 2,
+		.buffers = { bufGbuffer, bufRadiance, bufMaterials, bufLights, },
+		.bufferCount = 4,
 	};
 	IntroPassDesc const passAccumulate {
 		.name = "accumulate",

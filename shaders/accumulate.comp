@@ -1,13 +1,44 @@
+#line 2
 layout(std430, binding = 0) buffer Buffer_Radiance { vec4 radiance[]; };
 
 layout(binding = 0, rgba16f) uniform image2D imgHistory;
 
+uniform int iFrame;
+
+FnSceneMapStub;
+
 void main() {
 	const ivec2 px = ivec2(gl_GlobalInvocationID.xy);
 	const int linearIdx = px.y * skResolution.x + px.x;
-	const vec4 col = radiance[linearIdx];
-	const vec4 hist = imageLoad(imgHistory, px);
-	// const vec4 accum = mix(hist, col, 1.0 / 16.0);
-	const vec4 accum = col;
-	imageStore(imgHistory, px, col);
+	vec4 col = radiance[linearIdx];
+	vec4 hist = imageLoad(imgHistory, px);
+
+	bool converge = col.a > 0.0f;
+
+	// reset history
+	if (iFrame == 0) {
+		hist = vec4(0.0f);
+	}
+
+	if (iFrame != 0) {
+		// we want to sticky alphas < 1.0f for debugging.
+		if (col.a < 0.0f || hist.a < 0.0f) {
+			const f32v3 randCol = (
+				iFrame%70 < 5 ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f)
+			);
+			imageStore(imgHistory, px, vec4(randCol, -99.0f));
+			return;
+		}
+	}
+
+	if (converge) {
+		// converge with history using a running average
+		const float alpha = 1.0f / (hist.a + 1.0f);
+		const vec3 accum = mix(hist.rgb, col.rgb, alpha);
+
+		// store accumulation
+		imageStore(imgHistory, px, vec4(accum, hist.a + 1.0f));
+	} else {
+		imageStore(imgHistory, px, hist);
+	}
 }

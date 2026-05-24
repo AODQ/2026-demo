@@ -6,23 +6,60 @@
 #define f32 float
 #endif
 
+
+// -- prototyping
+#define skResolutionX 640
+#define skResolutionY 360
+
+// -- shipping
+// #define skResolutionX 1280
+// #define skResolutionY 720
+
+// -----------------------------------------------------------------------------
+// -- shared data structures
+// -----------------------------------------------------------------------------
+
 struct GBuffer {
-	f32v4 ori;
-	f32v4 nor;
-	f32 materialId;
+	f32v3 ori;
+	f32v3 nor;
 	f32 hitDist;
-	f32 pad0, pad1;
-	f32v4 wi;
+	f32 materialId;
+	f32v3 wi;
+
+#ifdef __cplusplus
+	// padding just to allocate enough data. these aren't going to hit bandwidth
+	f32v4 pad0; f32v4 pad1;
+#endif
 };
 
+struct Material {
+	f32v3 albedo;
+	f32 alpha;
+	f32 diffuse;
+	f32 transmittive;
+	f32 fresnel;
+};
+
+#define skLightsMax 128
+// TODO v this needs to be written directly into a storage buffer by init!
+#define skLightsInScene 1
 struct Light {
 	f32v3 ori;
-	f32v3 N;
-	f32v3 emi;
-	f32v2 radius;
+	f32v3 nor;
+	f32v2 halfExtent;
+	f32v3 emission;
 };
 
 #ifndef __cplusplus
+
+// -----------------------------------------------------------------------------
+// -- macro tuning
+// -----------------------------------------------------------------------------
+
+#define skPropagationIterations 4
+#define skConverge 1
+
+#define skResolution ivec2(skResolutionX, skResolutionY)
 
 // -----------------------------------------------------------------------------
 // -- math constants
@@ -34,7 +71,8 @@ struct Light {
 #define TAU  6.283185307179586
 #define ITAU 0.159154943091895
 
-#define SQR(X) ((X)*(X))
+#define SQR_EXPAND(X) ((X)*(X))
+f32 sqr(const f32 x) { return x*x; }
 
 #define f32m33 mat3
 
@@ -62,8 +100,6 @@ Ray fnLookAtRay(f32v2 uv, f32v3 origin, f32v3 target) {
 	LA = mat3(LA[2], LA[1], LA[0]);
 	return Ray(origin, normalize(LA * f32v3(uv.y, uv.x, 9.5f)));
 }
-
-#define skResolution ivec2(1280, 720)
 
 // -----------------------------------------------------------------------------
 // -- sdf utilities
@@ -291,8 +327,10 @@ f32v3 To_Cartesian ( float cos_theta, float phi ) {
   return f32v3(cos(phi)*sin_theta, sin(phi)*sin_theta, cos_theta);
 }
 
-vec3 Sample_Cos_Hemisphere ( f32v3 wi, f32v3 N, out float pdf,
-                             inout float seed ) {
+vec3 fnSampleHemisphereCos(
+	f32v3 wi, f32v3 N,
+	out float pdf, inout float seed
+) {
   vec2 u = fnSampleUniform2(seed);
   f32v3 wo = Reorient_Hemisphere(
                 normalize(To_Cartesian(sqrt(u.y), TAU*u.x)), N);
@@ -302,7 +340,7 @@ vec3 Sample_Cos_Hemisphere ( f32v3 wi, f32v3 N, out float pdf,
 
 float PDF_Cone ( float lobe ) {
   if ( lobe < 0.001 ) return 1.0;
-  return (TAU*SQR(sin(0.5*lobe)));
+  return (TAU*sqr(sin(0.5*lobe)));
 }
 
 f32v3 Sample_Uniform_Cone ( float lobe, out float pdf, inout float seed ) {
@@ -357,10 +395,21 @@ f32v3 fnSceneNormal(
 
 uniform float iTime;
 
+#define LIGHT_IDX(fl) int(fl - 100.0)
+
+f32v2 fnSceneMapLights(f32v3 o);
+
+#define FnSceneMapStub \
+	f32v2 fnSceneMapLights(f32v3 o) { return f32v2(0.0f); }
+
 // for now just a sphere
 f32v2 fnSceneMap(f32v3 o) {
 	f32v2 t = f32v2(1e9, -1.0);
 	float T = iTime;
+#if skConverge
+	T = 0.0; // disable animation for convergence mode
+#endif
+	o.x += 2.0f;
 
 	// ground plane
 	Union(t, sdPlane(o, f32v3(0,1,0), 0.0), 0.0);
@@ -444,7 +493,32 @@ f32v2 fnSceneMap(f32v3 o) {
 	f32v3 swordBase = kOri + f32v3(0.22, 0.35, swing*0.5);
 	Union(t, sdCapsule(o, swordBase, swordBase + f32v3(0.04, 0.45, 0.0), 0.015), 7.0);
 
+	const f32v2 lightmap = fnSceneMapLights(o);
+	Union(t, lightmap);
+
 	return t;
 }
+
+// -----------------------------------------------------------------------------
+// -- debug with knobs
+// -----------------------------------------------------------------------------
+
+uniform float uKnob0;
+uniform float uKnob1;
+uniform float uKnob2;
+
+f32v2 knobV2Impl() {
+	return f32v2(uKnob1, uKnob2);
+}
+
+f32v3 knob3Impl() {
+	return f32v3(uKnob0, uKnob1, uKnob2) * 2.0 - f32v3(1.0);
+}
+
+#define knob3 knob3Impl()
+#define knob3Nor knob3Impl()
+
+#define NOR3(X, Y, Z) \
+	((f32v3(X, Y, Z) - f32v3(0.5)) * 2.0)
 
 #endif

@@ -228,7 +228,7 @@ typedef struct {
 	int buffers[INTRO_MAX_BUFFERS];
 	int bufferCount;
 	GLuint program;
-	GLint uRes, uTime, uFrame;
+	GLint uTime, uFrame;
 	GLint ctrlLoc[MAX_CONTROLS];
 	long long mtime;
 } Pass;
@@ -304,6 +304,7 @@ static GLuint compile_compute(const char* src) {
 		char log[4096];
 		glGetShaderInfoLog(s, sizeof(log), 0, log);
 		LOG("compute compile error:\n%s\n", log);
+		LOG("^^ shader filed: %s.comp\n", E.pass[E.passCount].name);
 		glDeleteShader(s);
 		return 0;
 	}
@@ -327,7 +328,6 @@ static GLuint compile_compute(const char* src) {
 static void adopt(Pass* p, GLuint prog) {
 	if (p->program) glDeleteProgram(p->program);
 	p->program = prog;
-	p->uRes = glGetUniformLocation(prog, "iResolution");
 	p->uTime = glGetUniformLocation(prog, "iTime");
 	p->uFrame = glGetUniformLocation(prog, "iFrame");
 	for (int c = 0; c < E.ctrlCount; c++)
@@ -445,13 +445,6 @@ static void clear_image(const Img* im) {
 
 static void run_pass(Pass* p) {
 	glUseProgram(p->program);
-	if (p->uRes >= 0) {
-		glUniform2f(
-			p->uRes,
-			(float)E.renderResolutionWidth,
-			(float)E.renderResolutionHeight
-		);
-	}
 	if (p->uTime >= 0) glUniform1f(p->uTime, E.time);
 	if (p->uFrame >= 0) glUniform1i(p->uFrame, E.frame);
 	for (int c = 0; c < E.ctrlCount; c++)
@@ -501,7 +494,7 @@ static void present() {
 	glBlitFramebuffer(
 		0, 0, E.renderResolutionWidth, E.renderResolutionHeight,
 		0, 0, E.w,  E.h,
-		GL_COLOR_BUFFER_BIT, GL_LINEAR);
+		GL_COLOR_BUFFER_BIT, GL_NEAREST);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -542,7 +535,14 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 			return 0;
 		case WM_KEYDOWN:
 			if (wp == VK_ESCAPE) E.running = false;
-			else on_key((int)wp);
+			else { on_key((int)wp); 
+
+				// for now reset
+				E.frame = 0;
+				E.time = 0.0f;
+				run_startup_passes();
+			}
+
 			return 0;
 		case WM_CLOSE:
 		case WM_DESTROY:
@@ -604,10 +604,10 @@ static bool load_wgl(HINSTANCE inst) {
 
 
 bool intro_init(const IntroConfig* cfg) {
-	E.w = cfg->width > 0 ? cfg->width : 1280;
-	E.h = cfg->height > 0 ? cfg->height : 720;
-	E.renderResolutionWidth = 1280;
-	E.renderResolutionHeight = 720;
+	E.w = cfg->width > 0 ? cfg->width : 800;
+	E.h = cfg->height > 0 ? cfg->height : 600;
+	E.renderResolutionWidth = cfg->width;
+	E.renderResolutionHeight = cfg->height;
 	E.localSize = cfg->localSize > 0 ? cfg->localSize : 8;
 	E.vsync = cfg->vsync;
 	E.hotReload = cfg->hotReload;
@@ -744,6 +744,9 @@ void intro_add_pass(const IntroPassDesc* desc) {
 		CreateDirectoryA(E.shaderDir, 0);
 		dump_default(p);
 		fromDisk = reload_from_disk(p, true);
+		// reset time/frame so that shader changes are visible immediately
+		E.frame = 0;
+		E.time = 0.0f;
 	}
 #endif
 	if (!fromDisk) {
@@ -826,8 +829,13 @@ void intro_run(void) {
 		if (E.hotReload && (E.frame & 15) == 0) {
 			for (int i = 0; i < E.passCount; i++) {
 				bool changed = reload_from_disk(&E.pass[i], false);
-				if (changed && E.pass[i].sched == IntroSchedule_Startup)
+				if (changed && E.pass[i].sched == IntroSchedule_Startup) {
 					run_pass(&E.pass[i]);
+				}
+				if (changed) {
+					E.frame = 0;
+					E.time = 0;
+				}
 			}
 		}
 
@@ -866,7 +874,7 @@ void intro_run(void) {
 
 		if (E.present >= 0) present();
 		SwapBuffers(E.dc);
-		E.frame++;
+		E.frame = (E.frame + 1) % INT32_MAX;
 	}
 }
 
