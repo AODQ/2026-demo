@@ -1,0 +1,9 @@
+build/CMakeFiles/
+*.ninja*
+CMake*
+cmake.ninja
+cmake_install*
+compile_commands*
+intro.exe
+*lua
+*.cmake

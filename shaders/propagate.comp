@@ -1,0 +1,9 @@
+layout(std430, binding = 0) buffer Buffer_GBuffer { GBuffer data[]; };
+layout(std430, binding = 1) buffer Buffer_Radiance { vec4 radiance[]; };
+
+void main() {
+	// for now set radiance directly from gbuffer data
+	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+	int linearIdx = px.y * skResolution.x + px.x;
+	radiance[linearIdx] = vec4(data[linearIdx].ori);
+}
