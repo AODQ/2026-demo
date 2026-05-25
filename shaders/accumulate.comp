@@ -23,6 +23,12 @@ void main() {
 		return;
 	}
 
+	// TODO debug samplerh)istoryPos
+	vec3 selfPos = texture(samplerHistoryPos, (vec2(px)+0.5f)/vec2(skResolution)).rgb;
+	imageStore(imgHistory, px, vec4(selfPos, 1.0f));
+	imageStore(imgHistoryPos, px, vec4(P, 1.0f));
+	return;
+
 	vec3 camOriPrev, camTgtPrev; float fovPrev;
 	fnCameraFromSlots(iFrame-1, camOriPrev, camTgtPrev, fovPrev);
 	vec3 camOriCur, camTgtCur; float fovCur;
@@ -56,8 +62,8 @@ void main() {
 		outRgb = col.rgb; outCount = col.a;               // reset on disocclusion
 	}
 
-	imageStore(imgHistory, px, vec4(vec3(prevPos), 1.0f));
-	imageStore(imgHistoryPos, px, vec4(P, 1.0));
+	// imageStore(imgHistory, px, vec4(vec3(prevPos), 1.0f));
+	// imageStore(imgHistoryPos, px, vec4(P, 1.0));
 
 	// if (iFrame != 0) {
 	// 	// we want to sticky alphas < 1.0f for debugging.
