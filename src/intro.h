@@ -116,6 +116,11 @@ void intro_set_present(IntroImage img);
 // Seed a storage buffer from the host (alternative to a startup pass).
 void intro_buffer_upload(IntroBuffer buf, void const * data, size_t bytes);
 
+// Load a PNG from disk as a read-only texture. Returns an IntroImage that can
+// be used in IntroPassDesc reads[]. Uses REPEAT wrap (good for tiling noise).
+// Requires stb_image.h to be present in src/.
+IntroImage intro_load_texture_png(char const * path);
+
 // Float controls exposed to every shader as `uniform float <name>`.
 IntroControl intro_add_control(char const * name, f32 def, f32 lo, f32 hi);
 void intro_bind_key(i32 vk, IntroControl ctrl, f32 delta);
