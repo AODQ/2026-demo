@@ -101,6 +101,12 @@ i32 main(i32, char * *) {
 	IntroImageDesc const imgDescFilterTemp {
 		.doubleBuffered = false,
 	};
+	IntroImageDesc const imgDescBloomExtract {
+		.doubleBuffered = false,
+	};
+	IntroImageDesc const imgDescBloomBlur {
+		.doubleBuffered = true,
+	};
 	IntroImageDesc const imgDescFilterOutput {
 		.doubleBuffered = false,
 	};
@@ -111,6 +117,8 @@ i32 main(i32, char * *) {
 	IntroImage const imgHistoryPos = intro_add_image(&imgDescHistoryPos);
 	IntroImage const imgHistoryMoment = intro_add_image(&imgDescHistoryMoment);
 	IntroImage const imgFilterTemp = intro_add_image(&imgDescFilterTemp);
+	IntroImage const imgBloomExtract = intro_add_image(&imgDescBloomExtract);
+	IntroImage const imgBloomBlur = intro_add_image(&imgDescBloomBlur);
 	IntroImage const imgFilterOutput = intro_add_image(&imgDescFilterOutput);
 
 	IntroImage const imgBlueNoise = (
@@ -220,8 +228,8 @@ i32 main(i32, char * *) {
 		.dispatch = IntroDispatch_Image,
 		.write = { imgPresent },
 		.writeCount = 1,
-		.reads = { imgStbnScalar, imgStbnVec2, imgFilterOutput },
-		.readCount = 3,
+		.reads = { imgStbnScalar, imgStbnVec2, imgFilterOutput, imgBloomExtract },
+		.readCount = 4,
 	};
 
 	intro_add_pass(&passInit);
@@ -229,8 +237,8 @@ i32 main(i32, char * *) {
 	intro_add_pass(&passPropagate);
 	intro_add_pass(&passAccumulate);
 
-	// 5 tap filter
-	for (int i = 0; i < 5; i++) {
+	// 3 tap denoise filter
+	for (int i = 0; i < 3; i++) {
 		auto read = (i % 2 == 0) ? imgFilterOutput : imgFilterTemp;
 		auto write = (i % 2 == 0) ? imgFilterTemp : imgFilterOutput;
 		if (i == 0) {
@@ -250,6 +258,41 @@ i32 main(i32, char * *) {
 			.bufferCount = 1,
 		};
 		intro_add_pass(&passDescFilter);
+	}
+
+	// bloom extract
+	IntroPassDesc const passDescBloomExtract {
+		.name = "bloom_extract",
+		.embedded = nullptr, // TODO embed
+		.sched = IntroSchedule_EveryFrame,
+		.dispatch = IntroDispatch_Image,
+		.write = { imgBloomExtract },
+		.writeCount = 1,
+		.reads = { imgStbnScalar, imgStbnVec2, imgFilterOutput },
+		.readCount = 3,
+		.buffers = {},
+		.bufferCount = 0,
+	};
+	intro_add_pass(&passDescBloomExtract);
+
+	// bloom blur 4 iterations
+	for (int i = 0; i < 4; i++) {
+		auto read = (i % 2 == 0) ? imgBloomExtract : imgBloomBlur;
+		auto write = (i % 2 == 0) ? imgBloomBlur : imgBloomExtract;
+		IntroPassDesc const passDescBloomBlur {
+			.name = "bloom_blur",
+			.embedded = nullptr, // TODO embed
+			.sched = IntroSchedule_EveryFrame,
+			.dispatch = IntroDispatch_Image,
+			.write = { write },
+			.writeCount = 1,
+			.reads = { imgStbnScalar, imgStbnVec2, read },
+			.readCount = 3,
+			.uniformPassIndex = i,
+			.buffers = {},
+			.bufferCount = 0,
+		};
+		intro_add_pass(&passDescBloomBlur);
 	}
 
 	intro_add_pass(&passDescPost);

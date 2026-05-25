@@ -37,13 +37,13 @@ void main() {
 	uv.x /= skResolution.y / float(skResolution.x);
 
 	// -- construct seed
-	f32 seed = fnSampleSeed(px, 16);
-	f32v2 seed2 = fnSampleSeed2(px, 16);
+	f32 seed = fnSampleSeed(px, 32);
+	f32v2 seed2 = fnSampleSeed2(px, 32);
 
 	// -- jitter UV
-	// uv += (
-	// 	(fnSampleUniform2(seed2) - 0.5f) * 2.0f / vec2(skResolution)
-	// );
+	uv += (
+		(fnSampleUniform2(seed2) - 0.5f) * 2.0f / vec2(skResolution)
+	);
 
 	// -- primary ray
 	vec3 cori;
@@ -53,7 +53,14 @@ void main() {
 	Ray eye = fnLookAtRay(uv, cori, ctgt, cfov);
 
 	// -- march into scene
-	f32v2 hit = fnSceneMarch(eye);
+	const f32v2 hit = (
+		fnSceneMarch(
+			eye,
+			/*maxIterations=*/128,
+			/*maxDistance=*/128.0f,
+			/*threshold=*/0.001f
+		)
+	);
 	f32v3 ori = eye.ori + eye.dir * hit.x;
 
 	// -- store results

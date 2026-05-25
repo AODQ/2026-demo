@@ -2,6 +2,7 @@
 layout(binding = 0, rgba16f) uniform image2D imgOut;
 
 layout(binding = 2) uniform sampler2D samplerHistory;
+layout(binding = 3) uniform sampler2D samplerBloom;
 
 FnSceneMapStub;
 
@@ -80,7 +81,6 @@ void main() {
 	// mix history
 	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
 	vec4 hist = texture(samplerHistory, vec2(px) / vec2(skResolution));
-	hist = pow(hist, vec4(1.0 / 2.2));
 
 	// print knobs [[DEBUG STRIP ME OUT]]
 	{
@@ -122,6 +122,41 @@ void main() {
 			hist = vec4(1.0f) - hist;
 			hist += vec4(0.2f);
 		}
+	}
+
+	f32v2 uv = (f32v2(px) + 0.5f) / vec2(skResolution);
+
+	// -- brightness
+	hist.rgb *= pow(2.0f, (uKnobR * 2.0f - 1.0f)*5.0f);
+
+	// -- bloom
+	{
+		f32v3 col = texture(samplerBloom, uv).rgb;
+		hist.rgb += col*0.24f;
+	}
+
+	// -- tonemap
+	{
+		const f32 a = 2.51f;
+		const f32 b = 0.03f;
+		const f32 c = 2.43f;
+		const f32 d = 0.59f;
+		const f32 e = 0.14f;
+		const f32v3 x = hist.rgb;
+		hist.rgb = (
+			clamp((x*(a*x + b))/(x*(c*x + d) + e), f32v3(0.0f), f32v3(1.0f))
+		);
+		hist.rgb = pow(hist.rgb, vec3(1.0f/2.2f));
+	}
+
+
+	// -- vignette to hide temporal artifacts
+	{
+		f32v2 uvNor = uv*2.0f - 1.0f;
+		f32v2 vig2 = smoothstep(f32v2(1.0f), f32v2(0.1f), abs(uvNor));
+		f32 vignette = vig2.x * vig2.y;
+		vignette = pow(vignette, 0.4f);
+		hist.rgb *= vignette;
 	}
 
 	imageStore(imgOut, px, vec4(hist.rgb, 1.0f));

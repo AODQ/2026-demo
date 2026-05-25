@@ -13,10 +13,25 @@ void main() {
 
 	// -- light
 	if (i == 0u) {
-		light[0].ori = NOR3(f32v3(0.54, 0.54, 0.54))*32.0;
+		light[0].ori = f32v3(8.0);
 		light[0].nor = normalize(NOR3(f32v3(0.54, 0.54, 0.58)));
 		light[0].halfExtent = f32v2(1.0, 0.82)*2.0f;
-		light[0].emission = vec3(1.0, 1.0, 1.0) * 1000.0 * 0.13;
+		light[0].emission = vec3(1.0, 1.0, 1.0) * 1000.0 * 0.01;
+
+		light[1].ori = NOR3(f32v3(0.0, 0.0, -0.00))*32.0;
+		light[1].nor = normalize(NOR3(f32v3(-0.54, 0.54, 0.58)));
+		light[1].halfExtent = f32v2(1.0, 0.82)*2.0f;
+		light[1].emission = vec3(1.0, 0.0, 0.0) * 1000.0 * 0.01;
+
+		light[2].ori = NOR3(f32v3(-0.54, -0.54, 0.54))*32.0;
+		light[2].nor = -normalize(NOR3(f32v3(0.54, 0.54, 0.58)));
+		light[2].halfExtent = f32v2(1.0, 0.82)*2.0f;
+		light[2].emission = vec3(0.0, 1.0, 0.0) * 1000.0 * 0.01;
+
+		light[3].ori = -NOR3(f32v3(0.54, 0.54, 0.54))*32.0;
+		light[3].nor = normalize(NOR3(f32v3(0.54, 0.54, 0.58)));
+		light[3].halfExtent = f32v2(1.0, 0.82)*2.0f;
+		light[3].emission = vec3(1.0, 0.0, 1.0) * 1000.0 * 0.01;
 	}
 
 	light[skLightsInScene].emission = vec3(-1000000.0f);

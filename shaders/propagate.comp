@@ -314,7 +314,14 @@ int fnIrradiance(
 	// -- march towards surface to prepare for next hit, but also
 	//    check if the hit surface is a radiance source
 	rayWo = Ray(itOri + itNor*0.1f, bsdfWo);
-	hitWo = fnSceneMarch(rayWo);
+	hitWo = (
+		fnSceneMarch(
+			rayWo,
+			/*maxIterations=*/64,
+			/*maxDistance=*/16.0f,
+			/*threshold=*/0.01f
+		)
+	);
 
 	int lightIndex = skLightIndexNone;
 
@@ -375,7 +382,14 @@ int fnIrradiance(
 		// only march if the emitter is in the same hemisphere as the normal
 		const bool sameHemisphere = dot(itNor, emitterWo) > 0.0f;
 		if (sameHemisphere) {
-			lightMarch = fnSceneMarch(Ray(itOri + itNor*0.01f, emitterWo));
+			lightMarch = (
+				fnSceneMarch(
+					Ray(itOri + itNor*0.01f, emitterWo),
+					/*maxIterations=*/32,
+					/*maxDistance=*/64.0f,
+					/*threshold=*/0.001f
+				)
+			);
 		}
 
 		bool visible = (
@@ -436,11 +450,15 @@ int fnPropagate(
 
 	// unpack material
 	if (itMaterialId ==0) {
-		// checkerboard pattern albedo
-		mat.albedo = (
-			((mod(floor(itOri.x*0.5f) + floor(itOri.z*0.5f), 2.0f)) < 1.0f)
-			? vec3(0.8f, 0.8f, 0.8f) : vec3(0.2f, 0.2f, 0.2f)
+		// checkerboard pattern albedo and roughness
+		float checker = mod(floor(itOri.x*0.5f) + floor(itOri.z*0.5f), 2.0f);
+		mat.albedo = vec3(
+			0.8f + 0.2f * checker,
+			0.8f + 0.2f * checker,
+			0.8f + 0.2f * checker
 		);
+		mat.alpha = 0.05f + 0.9f * checker;
+		mat.diffuse = 0.01f + 0.9f * checker;
 	}
 
 	Ray rayWo;
@@ -481,7 +499,7 @@ void main() {
 	const GBuffer gbuf = data[linearIdx];
 
 	// check if radiance has high alpha count, in which case can quit
-	if (skAnimate == 0 && iFrame > 100.0f) {
+	if (skAnimate == 0 && iFrame > 1000) {
 		outRadiance[linearIdx] = vec4(0.0f);
 		return;
 	}
@@ -584,7 +602,7 @@ void main() {
 
 		// accumulate history for this iteration
 		// clamp fireflies
-		const float maxLuminance = 10.0f;
+		const float maxLuminance = 5.5f;
 		float lum = dot(irradianceAccumulator, vec3(0.2126f, 0.7152f, 0.0722f));
 		if (lum > maxLuminance) {
 			irradianceAccumulator *= maxLuminance / lum;

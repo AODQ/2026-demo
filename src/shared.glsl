@@ -50,7 +50,7 @@ struct Material {
 #define skLightIndexNone (-1)
 #define LIGHT_IDX(fl) int(fl - 100.0)
 
-#define skLightSkyEmission (vec3(0.88, 0.86, 0.63) * 1.0)
+#define skLightSkyEmission (vec3(0.88, 0.86, 0.63) * 1.05)
 
 // sky is a special light
 #define skLightsInSceneInclSky (skLightsInScene+1)
@@ -81,7 +81,7 @@ uniform float uSlots[64];
 #define skPropagationIterations 2
 #define skSamplesPerPixel 1
 #define skConverge 1
-#define skAnimate 1
+#define skAnimate 0
 
 #define skResolution ivec2(skResolutionX, skResolutionY)
 
@@ -140,15 +140,22 @@ bool fnWorldToScreen(f32v3 P, f32v3 ori, f32v3 target, float fov, out vec2 outUv
 void fnCameraFromSlots(int frame, out vec3 ori, out vec3 tgt, out float fov) {
 #if !skAnimate
 	frame = 0;
-#endif
-	float wrapX = float(frame*0.01);
-	float wrapY = 0.2f;
+	float wrapX = float(uSlots[0])*TAU;
+	float wrapY = float(uSlots[1]);
+	float wrapZ = float(uSlots[2]);
+	tgt.x = -0.7;
+	tgt.y = 0.4;
+	tgt.z = -0.2;
+#else
+	float wrapX = float(frame*0.02);
+	float wrapY = 0.8f;
 	float wrapZ = 3.0;
-	ori = vec3(cos(wrapX), wrapY, sin(wrapX)) * wrapZ * 3.0;
 	tgt = (
 		vec3(-2.0, 0.0f, 0.0f)
 	);
-	fov = 6.0f;
+#endif
+	ori = vec3(cos(wrapX), wrapY, sin(wrapX)) * wrapZ * 3.0;
+	fov = 2.0f;
 }
 
 // -----------------------------------------------------------------------------
@@ -372,17 +379,18 @@ float fnSampleSeed(ivec2 px, int iteration=0) {
 #endif
 }
 
-f32v2 fnSampleSeed2(ivec2 px, int iteration=0) {
+f32v2 fnSampleSeed2(ivec2 px, int iteration=0, int frame=-1) {
 #if skRandom == skRandomSine
 	return vec2(fnSampleSeed(px, iteration)) + (
 		vec2(1.0, 1.3)*float(iteration)*0.61803398875
 	);
 #else
 	ivec3 size = textureSize(samplerStbnVec2, 0);
+	if (frame == -1) { frame = iFrame; }
 	const ivec3 c = (
 		ivec3(
 			px % size.xy,
-			(iFrame * skSamplesPerPixel + iteration + 16) % size.z
+			(frame * skSamplesPerPixel + iteration + 16) % size.z
 		)
 	);
 	return texelFetch(samplerStbnVec2, c, 0).rg;
@@ -477,15 +485,23 @@ f32v2 Normal_Sampler ( in sampler2D s, in f32v2 uv ) {
 
 f32v2 fnSceneMap(f32v3 o);
 
-f32v2 fnSceneMarch(Ray ray) {
+#define skSceneMarchIterations 128
+#define skSceneMarchMaxDist 128.0f
+#define skSceneMarchThreshold 0.0001f
+f32v2 fnSceneMarch(
+	Ray ray,
+	const int maxIterations = skSceneMarchIterations,
+	const float maxDist = skSceneMarchMaxDist,
+	const float threshold = skSceneMarchThreshold
+) {
 	f32 dist = 0.0;
 	f32v2 cur;
-	for (int i = 0; i < 1024; i++) {
+	for (int i = 0; i < maxIterations; i++) {
 		cur = fnSceneMap(ray.ori + ray.dir*dist);
-		if (cur.x < 0.001 || cur.x > 256.0f) break;
+		if (cur.x < threshold || cur.x > maxDist) break;
 		dist += cur.x;
 	}
-	if (dist > 256.0f || dist < 0.0f) {
+	if (dist > maxDist || dist < 0.0f) {
 		return f32v2(-1.0f, -1.0f);
 	}
 	return f32v2(dist, cur.y);
@@ -519,9 +535,9 @@ f32v2 fnSceneMapLights(f32v3 o);
 f32v2 fnSceneMap(f32v3 o) {
 	f32v2 t = f32v2(1e9, -1.0);
 	float T = iTime;
-#if !skAnimate
-	// T = 0.0; // disable animation for convergence mode
-#endif
+// #if !skAnimate
+	T = 0.0; // disable animation for convergence mode
+// #endif
 	o.x += 2.0f;
 
 	// ground plane
@@ -531,14 +547,19 @@ f32v2 fnSceneMap(f32v3 o) {
 	Union(t, sdBox(o - f32v3(0.0,0.0,0), f32v3(0.1,4.5,0.1)), 1.0);
 
 	// -- castle tower
-	Union(t, sdCylinder(o, 0.4, 0.8), 1.0);
-	Union(t, sdBox(o - f32v3(0,0.9,0), f32v3(0.42,0.1,0.42)), 1.0);
+	f32v3 co = o;
+	float castleSpacing = 2.0;
+	co.x = mod(co.x + castleSpacing*0.5, castleSpacing) - castleSpacing*0.5;
+	co.z = mod(co.z + castleSpacing*0.5, castleSpacing) - castleSpacing*0.5;
+	Union(t, sdCylinder(co, 0.4, 0.8), 1.0);
+	Union(t, sdBox(co - f32v3(0,0.9,0), f32v3(0.42,0.1,0.42)), 1.0);
 	for (int i = 0; i < 4; i++) {
 		float a = float(i) * PI * 0.5;
-		Union(t, sdBox(o - f32v3(cos(a)*0.32, 1.1, sin(a)*0.32), f32v3(0.08,0.1,0.08)), 1.0);
+		Union(t, sdBox(co - f32v3(cos(a)*0.32, 1.1, sin(a)*0.32), f32v3(0.08,0.1,0.08)), 1.0);
 	}
+
 	// door
-	float door = sdBox(o - f32v3(0.0, 0.25, -0.38), f32v3(0.12,0.25,0.05));
+	float door = sdBox(co - f32v3(0.0, 0.25, -0.38), f32v3(0.12,0.25,0.05));
 	t.x = opSmoothSubtraction(door, t.x, 0.02);
 
 	// -- orbiting moon rock around tower

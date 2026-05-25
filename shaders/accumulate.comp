@@ -16,10 +16,12 @@ void main() {
 	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
 	int idx = px.y * skResolution.x + px.x;
 	vec4 col = inRadiance[idx];
+
+	// clamp fireflies
 	vec3 P = inGbuffer[idx].ori;
 	bool hasSurface = inGbuffer[idx].materialId >= 0.0;
 
-	if (skAnimate == 0 && iFrame > 100) { return; }
+	if (skAnimate == 0 && iFrame > 1000) { return; }
 
 	if (iFrame == 0 || !hasSurface) {
 		float lum0 = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -38,6 +40,14 @@ void main() {
 	vec2 uvPrev;
 	bool onScreen = fnWorldToScreen(P, camOriPrev, camTgtPrev, fovPrev, uvPrev);
 	uvPrev.x /= aspect;
+
+	// calculate last camera jitter uv
+	{
+		f32v2 seed2 = fnSampleSeed2(px, 32, iFrame-1);
+		uvPrev -= (
+			(fnSampleUniform2(seed2) - 0.5f) / vec2(skResolution)
+		);
+	}
 	vec2 uvS = uvPrev*0.5 + 0.5;
 	vec2 pxF = uvS * vec2(skResolution) - 0.5;
 
@@ -45,17 +55,22 @@ void main() {
 	vec4 hist = vec4(0.0);
 	if (onScreen && all(greaterThanEqual(pxF, vec2(0))) && all(lessThan(pxF, vec2(skResolution)))) {
 		hist = texture(samplerHistory, uvS);
+		const float lumHist = dot(hist.rgb, vec3(0.2126, 0.7152, 0.0722));
 		vec3 prevPos = texture(samplerHistoryPos, uvS).rgb;
 		// disocclusion
 		const float footprint = (
-			(uSlots[32]==0.0f?0.01f:uSlots[32]*0.01f) * distance(P, camOriCur)
+			(uSlots[32]==0.0f?0.015f:uSlots[32]*0.01f) * distance(P, camOriCur)
 		);
 		valid = distance(P, prevPos) < max(footprint, 1e-3);
 	}
 
 	vec3 outRgb; float outCount;
 	if (valid) {
-		const float histCount = min(hist.a, 128.0);
+#if skAnimate
+		const float histCount = min(hist.a, 4.0);
+#else
+		const float histCount = hist.a;
+#endif
 		const float alpha = col.a / (histCount + col.a);
 		const float lumC = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
 
@@ -97,7 +112,7 @@ void main() {
 		const float variance = mix(spatialVariance, temporalVariance, blend);
 
 		// store moment for next frame
-		imageStore(imgHistoryMoment, px, vec4(newM1, newM2, 0.0f, 1.0f));
+		imageStore(imgHistoryMoment, px, vec4(newM1, newM2, variance, 1.0f));
 
 		// -- color bbox clamp using spatial neighborhood variance
 		vec3 ncMin = col.rgb;
@@ -117,7 +132,7 @@ void main() {
 		}
 
 		// k tunes aggressiveness of clamp. b/c of low spp this is very low
-		float k = 0.55f;
+		float k = 4.0f;
 		const vec3 sigma = (ncMax - ncMin) * 0.5f;
 		const vec3 mean = (ncMax + ncMin) * 0.5f;
 
