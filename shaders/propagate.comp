@@ -37,10 +37,11 @@ f32v3 fnEmitterSample(
 	if (lightIndex == skLightIndexSky) {
 		// uniform sampling of the hemisphere for sky
 		vec2 u = fnSampleUniform2(seed);
-		return Reorient_Hemisphere(
+		f32v3 dir = Reorient_Hemisphere(
 			normalize(To_Cartesian(sqrt(u.y), TAU*u.x)),
 			normal
 		);
+		return dir*1e6f;
 	}
 	const f32v2 uv = (fnSampleUniform2(seed) - 0.5f) * 2.0f;
 	const Light light = inLight[lightIndex];
@@ -94,7 +95,7 @@ bool fnValidEmitter(int lightIndex, f32v3 wo) {
 // -----------------------------------------------------------------------------
 
 // GGX microfacet BSDF. wi is eye -> surface, wo leaves surface.
-// view direction is -wi. H is normalize(V + wo).
+// view direction is -wi. H is normalize(wi + wo).
 
 // GGX normal distribution.
 f32 fnGgxDistribution(f32 dotNorH, f32 a2) {
@@ -131,13 +132,12 @@ f32 fnBsdfPdf ( f32v3 N, f32v3 wi, f32v3 wo, Material mat ) {
 	if ( mat.transmittive > 0.0 ) {
 		return 1.0;
 	}
-	f32v3 V = -wi;
 	f32 dotNorWo = dot(N, wo);
 	// Below the hemisphere contributes no reflection density.
 	if ( dotNorWo <= 0.0 ) {
 		return 0.0;
 	}
-	f32v3 H = V + wo;
+	f32v3 H = -wi + wo;
 	{
 		// NaN guard for degenerate half-vector
 		const f32 hlen = length(H);
@@ -148,7 +148,7 @@ f32 fnBsdfPdf ( f32v3 N, f32v3 wi, f32v3 wo, Material mat ) {
 		H /= hlen;
 	}
 	const f32 dotNorH = max(dot(N, H), 0.0);
-	const f32 dotHWi = max(dot(V, H), 1e-4);
+	const f32 dotHWi = clamp(dot(-wi, H), 0.0f, 1.0f);
 	const f32 a2 = max(mat.alpha * mat.alpha, 0.0001f);
 	// Half-vector NDF pdf converted to the outgoing direction.
 	const f32 specPdf = (
@@ -179,10 +179,9 @@ f32v3 fnBsdfSample (
 	}
 	// Specular lobe: sample a half-vector, reflect the view across it.
 	f32v2 xi = fnSampleUniform2(seed);
-	f32 a2 = mat.alpha * mat.alpha;
+	f32 a2 = max(mat.alpha * mat.alpha, 0.0001f);
 	f32v3 H = fnSampleGgxH(N, a2, xi);
-	f32v3 V = -wi;
-	f32v3 wo = 2.0 * dot(V, H) * H - V;
+	f32v3 wo = 2.0 * dot(-wi, H) * H - -wi;
 	pdf = fnBsdfPdf(N, wi, wo, mat);
 	return wo;
 }
@@ -197,19 +196,29 @@ f32v3 fnBsdfF ( f32v3 N, f32v3 wi, f32v3 wo, Material mat ) {
 	if (dotNorWi <= 0.0 || dotNorWo <= 0.0) {
 		return f32v3(0.0f);
 	}
-	f32v3 H = normalize(wiV + wo);
-	f32 dotNorH = max(dot(N, H), 0.0);
-	f32 dotHWi = max(dot(wiV, H), 0.0);
-	f32 a2 = mat.alpha * mat.alpha;
-	f32 D = fnGgxDistribution(dotNorH, a2);
-	f32 G = fnSmithGgxVisibility(dotNorWi, dotNorWo, a2);
-	f32 F = fnSchlickFresnel(dotHWi, mat.fresnel);
+	f32v3 H = wiV + wo;
+	{
+		// NaN guard for degenerate half-vector
+		const f32 hlen = length(H);
+		if (hlen < 1e-4) {
+			// degenerate half-vector, no specular contribution
+			return f32v3(0.0f);
+		} else {
+			H /= hlen;
+		}
+	}
+	const f32 dotNorH = clamp(dot(N, H), 0.0, 1.0f);
+	const f32 dotHWi = clamp(dot(wiV, H), 0.0, 1.0f);
+	const f32 a2 = max(mat.alpha * mat.alpha, 0.0001f);
+	const f32 D = fnGgxDistribution(dotNorH, a2);
+	const f32 G = fnSmithGgxVisibility(dotNorWi, dotNorWo, a2);
+	const f32 F = fnSchlickFresnel(dotHWi, mat.fresnel);
 	// no need for 1/(4*dotNorWo*dotNorWi), it's folded into G
-	f32 spec = D * G * F;
-	f32 diffuse = mat.diffuse;
+	const f32 spec = D * G * F;
+	const f32 diffuse = mat.diffuse;
 	return (
-		  diffuse * IPI * mat.albedo
-		+ (1.0 - diffuse) * spec * mat.albedo
+		 (1.0 - diffuse) * spec * mat.albedo
+		+ diffuse * mat.albedo * IPI
 	);
 }
 
@@ -230,6 +239,10 @@ f32v3 fnBsdfF ( f32v3 N, f32v3 wi, f32v3 wo, Material mat ) {
 // on path termination the accumulated irradiance can be used.
 #define skHitIndirect 2
 
+// the path should be terminated. Any contribution can be used however
+// if there is none accumulated, then no overall contribution.
+#define skHitTerminate 3
+
 // for now just super simple model
 // this will find a new direction for bsdfWo as well as compute irradiance
 int fnIrradiance(
@@ -243,7 +256,9 @@ int fnIrradiance(
 	inout f32 seed,
 
 	inout Ray rayWo,
-	inout f32v2 hitWo
+	inout f32v2 hitWo,
+
+	in const int iteration
 )
 {
 	int returnEnum = skHitNone;
@@ -257,12 +272,42 @@ int fnIrradiance(
 
 	// terminate path since this produced a bad direction
 	if (dotNorWo <= 0.0f || bsdfPdf <= 0.0f) {
-		return 0;
+		return skHitTerminate;
 	}
 
 	irradianceThroughput *= (
 		fnBsdfF(itNor, itWi, bsdfWo, mat) * dotNorWo / bsdfPdf
 	);
+
+	// -- terminate path if throughput is too low to contribute
+	// this also helps prevent NaNs from propagating
+	if (length(irradianceThroughput) < 1e-4f) {
+		return skHitTerminate;
+	}
+
+	// -- russian roulette
+	if (iteration > 2) {
+		const f32 rrProbability = (
+			clamp(
+				max(
+					irradianceThroughput.x,
+					max(irradianceThroughput.y, irradianceThroughput.z)
+				),
+				0.01f, 1.0f
+			)
+		);
+		if (fnSampleUniform(seed) > rrProbability) {
+			return skHitTerminate;
+		}
+		irradianceThroughput /= rrProbability;
+	}
+
+	// -- optionally if not NaN hunting then terminate NaN paths
+#if 1
+	if (any(isnan(irradianceThroughput))) {
+		return skHitTerminate;
+	}
+#endif
 
 	// -- march towards surface to prepare for next hit, but also
 	//    check if the hit surface is a radiance source
@@ -283,12 +328,13 @@ int fnIrradiance(
 
 		// apply bsdf contribution to emitter when hitting a light
 		if (fnValidEmitter(bsdfLightIndex, bsdfWo)) {
+			lightIndex = bsdfLightIndex;
 			const f32 emitterDist = hitWo.x;
 
 			// use NEE sampling strategy for PDF so that it can be combined
 			// with direct irradiance
 			const f32 emitPdf = (
-				  fnEmitPdf(bsdfLightIndex, bsdfWo, emitterDist)
+				  fnEmitPdf(lightIndex, bsdfWo, emitterDist)
 				/ skLightsInSceneInclSky
 			);
 
@@ -301,7 +347,7 @@ int fnIrradiance(
 			// throughput contains the bounce's bsdfF.
 			// arriving light is just emission, throughput and MIS weight.
 			const f32v3 radiance = (
-				  fnEmitterF(bsdfLightIndex, bsdfWo)
+				  fnEmitterF(lightIndex, bsdfWo)
 				* irradianceThroughput
 				* misWeight
 			);
@@ -371,7 +417,8 @@ int fnPropagate(
 	inout f32 itMaterialId,
 	inout f32v3 irradianceThroughput,
 	inout f32v3 irradianceAccumulator,
-	inout f32 seed
+	inout f32 seed,
+	in const int iteration
 ) {
 	// -- compute irradiance on surface
 	f32v3 bsdfWo;
@@ -384,15 +431,21 @@ int fnPropagate(
 			mat,
 			itOri, itNor, itWi, bsdfWo,
 			irradianceThroughput, irradianceAccumulator, seed,
-			rayWo, hitWo
+			rayWo, hitWo,
+			iteration
 		)
 	);
+
+	// just immediately terminate if path is bad
+	if (returnEnum == skHitTerminate) {
+		return returnEnum;
+	}
 
 	// -- update iters
 	itOri = rayWo.ori + rayWo.dir * hitWo.x + 0.01f*rayWo.dir;
 	itNor = fnSceneNormal(itOri);
 	itWi = rayWo.dir;
-	itMaterialId = hitWo.y;
+	itMaterialId = int(hitWo.y+0.5f);
 
 	return returnEnum;
 }
@@ -469,7 +522,8 @@ void main() {
 		int returnEnum = (
 			fnPropagate(
 				itOri, itNor, itWi,
-				itMaterialId, irradianceThroughput, irradianceAccumulator, seed
+				itMaterialId, irradianceThroughput, irradianceAccumulator, seed,
+				i
 			)
 		);
 
@@ -486,12 +540,20 @@ void main() {
 			hit = 1;
 			break;
 		}
+
+		if (returnEnum == skHitTerminate) {
+			break;
+		}
 	}
 
 	// debug for NaN hunts
 	if (any(isnan(irradianceAccumulator)) && hit > 0)
 	{
 		outRadiance[linearIdx] = vec4(1.0f, 0.0f, 1.0f, -1.0f);
+#if 0
+		// in this mode just discard NaNs
+		outRadiance[linearIdx] = vec4(0.0f);
+#endif
 		return;
 	}
 

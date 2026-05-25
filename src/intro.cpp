@@ -559,8 +559,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 			E.resized = true;
 			return 0;
 		case WM_KEYDOWN:
-			if (wp == VK_ESCAPE) E.running = false;
-			else { on_key((int)wp); 
+			// if (wp == VK_ESCAPE) E.running = false; else
+			{ on_key((int)wp); 
 
 				// for now reset
 				E.frame = 0;

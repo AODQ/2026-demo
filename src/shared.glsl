@@ -49,7 +49,7 @@ struct Material {
 #define skLightIndexNone (-1)
 #define LIGHT_IDX(fl) int(fl - 100.0)
 
-#define skLightSkyEmission (vec3(0.88, 0.86, 0.63) * 50.0)
+#define skLightSkyEmission (vec3(0.88, 0.86, 0.63) * 1.0)
 
 // sky is a special light
 #define skLightsInSceneInclSky (skLightsInScene+1)
@@ -73,7 +73,7 @@ struct Light {
 #define skResolution ivec2(skResolutionX, skResolutionY)
 
 // -----------------------------------------------------------------------------
-// -- math constants
+// -- math utility
 // -----------------------------------------------------------------------------
 
 #define PI   3.141592653589793
@@ -86,7 +86,6 @@ struct Light {
 f32 sqr(const f32 x) { return x*x; }
 
 #define f32m33 mat3
-
 #define f32m33 mat3
 
 // -----------------------------------------------------------------------------
@@ -105,11 +104,11 @@ f32m33 fnLookAt(f32v3 n, f32v3 up) {
 	return mat3(ww, uu, vv);
 }
 
-Ray fnLookAtRay(f32v2 uv, f32v3 origin, f32v3 target) {
+Ray fnLookAtRay(f32v2 uv, f32v3 origin, f32v3 target, f32 fov) {
 	const f32v3 up = f32v3(0, 1, 0);
 	f32m33 LA = fnLookAt(normalize(target - origin), up);
 	LA = mat3(LA[2], LA[1], LA[0]);
-	return Ray(origin, normalize(LA * f32v3(uv.y, uv.x, 9.5f)));
+	return Ray(origin, normalize(LA * f32v3(uv.y, uv.x, fov)));
 }
 
 // -----------------------------------------------------------------------------
@@ -315,7 +314,7 @@ vec3 fnSampleUniform3(inout float seed) {
 // -----------------------------------------------------------------------------
 
 void Calculate_XY ( in f32v3 N, inout f32v3 binormal, inout f32v3 bitangent){
-  binormal = vec3(1.0, 0.0, 0.0) ;
+  binormal = abs(N.y) < 0.99f ? f32v3(0.0, 1.0, 0.0) : f32v3(1.0, 0.0, 0.0);
   binormal = normalize(cross(N, binormal));
   bitangent = cross(binormal, N);
 }
@@ -423,6 +422,9 @@ f32v2 fnSceneMap(f32v3 o) {
 	// ground plane
 	Union(t, sdPlane(o, f32v3(0,1,0), 0.0), 0.0);
 
+	// put a box at origin just to mark origin
+	Union(t, sdBox(o - f32v3(0.0,0.0,0), f32v3(0.1,4.5,0.1)), 1.0);
+
 	// -- castle tower
 	Union(t, sdCylinder(o, 0.4, 0.8), 1.0);
 	Union(t, sdBox(o - f32v3(0,0.9,0), f32v3(0.42,0.1,0.42)), 1.0);
@@ -520,7 +522,6 @@ f32v3 knob3(int offset) {
 	return f32v3(uSlots[offset], uSlots[offset+1], uSlots[offset+2]);
 }
 
-#define NOR3(X, Y, Z) \
-	((f32v3(X, Y, Z) - f32v3(0.5)) * 2.0)
+#define NOR3(X) (X*2.0 - vec3(1.0))
 
 #endif
