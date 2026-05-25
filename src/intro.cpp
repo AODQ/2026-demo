@@ -234,7 +234,7 @@ typedef struct {
 	int buffers[INTRO_MAX_BUFFERS];
 	int bufferCount;
 	GLuint program;
-	GLint uTime, uFrame, uSlots;
+	GLint uTime, uFrame, uSlots, uMs;
 	GLint ctrlLoc[MAX_CONTROLS];
 	long long mtime;
 } Pass;
@@ -278,6 +278,8 @@ static struct {
 	float time;
 	LARGE_INTEGER freq, t0;
 
+	float millis; // milliseconds to render previous frame
+
 	float slot[INTRO_SLOTS];
 	int selectedSlot;
 
@@ -315,7 +317,6 @@ static GLuint compile_compute(const char* src) {
 		char log[4096];
 		glGetShaderInfoLog(s, sizeof(log), 0, log);
 		LOG("compute compile error:\n%s\n", log);
-		LOG("^^ shader failed: %s.comp\n", E.pass[E.passCount].name);
 		glDeleteShader(s);
 		return 0;
 	}
@@ -340,6 +341,7 @@ static void adopt(Pass* p, GLuint prog) {
 	if (p->program) glDeleteProgram(p->program);
 	p->program = prog;
 	p->uTime = glGetUniformLocation(prog, "iTime");
+	p->uMs = glGetUniformLocation(prog, "iMillis");
 	p->uFrame = glGetUniformLocation(prog, "iFrame");
 	p->uSlots = glGetUniformLocation(prog, "uSlots");
 	for (int c = 0; c < E.ctrlCount; c++)
@@ -460,6 +462,7 @@ static void clear_image(const Img* im) {
 static void run_pass(Pass* p) {
 	glUseProgram(p->program);
 	if (p->uTime >= 0) glUniform1f(p->uTime, E.time);
+	if (p->uMs >= 0) glUniform1f(p->uMs, E.millis);
 	if (p->uFrame >= 0) glUniform1i(p->uFrame, E.frame);
 	if (p->uSlots >= 0) glUniform1fv(p->uSlots, INTRO_SLOTS, E.slot);
 	for (int c = 0; c < E.ctrlCount; c++)
@@ -935,9 +938,21 @@ void intro_run(void) {
 
 		LARGE_INTEGER now;
 		QueryPerformanceCounter(&now);
-		E.time = (float)(now.QuadPart - E.t0.QuadPart) /
-				 (float)E.freq.QuadPart;
+		E.time = (
+			(float)(now.QuadPart - E.t0.QuadPart)
+			/ (float)E.freq.QuadPart
+		);
 
+		// compute how much milliseconds it took to render
+		// previous frame
+		static LARGE_INTEGER last;
+		E.millis = (
+			(float)(now.QuadPart - last.QuadPart)
+			/ (float)E.freq.QuadPart * 1000.0f
+		);
+		last = now;
+
+		// -- run passes
 		for (int i = 0; i < E.passCount; i++) {
 			Pass* p = &E.pass[i];
 			if (p->sched == IntroSchedule_EveryFrame) {

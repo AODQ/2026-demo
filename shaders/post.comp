@@ -72,8 +72,6 @@ float PrintFloat(ivec2 px, vec2 gridPos, float value, float decimals = 2.0f) {
 	return PrintValue(normalized, value, 3.0, decimals);
 }
 
-uniform int iFrame;
-
 // -----------------------------------------------------------------------------
 // -- PRODUCTION ---------------------------------------------------------------
 // -----------------------------------------------------------------------------
@@ -87,10 +85,10 @@ void main() {
 	// print knobs [[DEBUG STRIP ME OUT]]
 	{
 		float knob = 0.0f;
-		knob += PrintFloat(px, vec2(0, 1), uKnobL);
 		knob += PrintFloat(px, vec2(1, 1), uKnobR);
 		knob += PrintFloat(px, vec2(12.5, 0), iTime);
 		knob += PrintFloat(px, vec2(12.5, 1), iFrame);
+		knob += PrintFloat(px, vec2(12.5, 2), iMillis);
 
 		// print each slot
 		int activeSlots = 0;
@@ -133,9 +131,6 @@ void main() {
 			}
 		}
 	}
-
-	// try bluenoise debug print
-	hist = texture(samplerBlueNoise, vec2(px) / vec2(skResolution));
 
 	imageStore(imgOut, px, hist);
 }

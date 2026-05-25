@@ -504,14 +504,7 @@ void main() {
 	}
 
 	// consistent seed
-	f32 seed = (
-		fract(
-			sin(
-				dot(px*0.02141423f, vec2(0.012*iTime, iTime*0.933))
-			)
-			* 458.5453
-		)
-	);
+	f32 seed = fnSampleSeed(px);
 
 	// -- render loop
 	f32v3 irradianceThroughput = vec3(1.0f);

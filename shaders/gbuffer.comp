@@ -37,7 +37,7 @@ void main() {
 	uv.x /= skResolution.y / float(skResolution.x);
 
 	// -- construct seed
-	float seed = fract(float(linearIdx) + 1.0f);
+	float seed = fnSampleSeed(px);
 
 	// -- jitter UV
 	uv += (
@@ -50,8 +50,8 @@ void main() {
 	f32 wrapY = 0.69;
 	f32 wrapZ = 0.23;
 #else
-	f32 wrapX = uKnobL*TAU;
-	f32 wrapZ = uKnobR;
+	f32 wrapX = uSlots[24]*TAU;
+	f32 wrapZ = uSlots[25];
 	f32 fov = uSlots[16]*20.0f;
 	f32 wrapY = uSlots[20]*2.0;
 	f32 targetX = uSlots[17]*2.0f - 1.0f;

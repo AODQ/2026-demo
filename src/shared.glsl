@@ -68,16 +68,16 @@ struct Light {
 // -----------------------------------------------------------------------------
 
 layout(binding = 0) uniform sampler2D samplerBlueNoise;
-uniform float uKnobL;
 uniform float uKnobR;
+uniform int iFrame;
 uniform float uSlots[64];
 
 // -----------------------------------------------------------------------------
 // -- macro tuning
 // -----------------------------------------------------------------------------
 
-#define skPropagationIterations 4
-#define skConverge 0
+#define skPropagationIterations 2
+#define skConverge 1
 
 #define skResolution ivec2(skResolutionX, skResolutionY)
 
@@ -300,22 +300,67 @@ float opReflect ( inout f32v3 p, f32v3 plane_normal, float offset ) {
 // -- random utilities
 // -----------------------------------------------------------------------------
 
+#define skRandomSine 1
+#define skRandomBlueNoise 2
+#define skRandom skRandomBlueNoise
+
+// global dimension counter
+int gSampleDimension = 1;
+
+float fnSampleSeed(ivec2 px) {
+#if skRandom == skRandomSine
+	return (
+		fract(
+			sin(
+				  float(px.x)*3.12931
+				+ float(px.y)*7.23145
+				+ float(iFrame)*1.61803398875
+			) * 43758.5453123
+		)
+	);
+#elif skRandom == skRandomBlueNoise
+	vec2 uv = (vec2(px) + 0.5f) / vec2(textureSize(samplerBlueNoise, 0))*0.01f;
+	float bn = texture(samplerBlueNoise, uv).r;
+	// golden ratio for offset per frame
+	return fract(bn + float(iFrame)*0.61803398875);
+#endif
+}
+
 float fnSampleUniform(inout float seed) {
+#if skRandom == skRandomSine
 	return fract(sin(seed += 0.1)*43758.5453123);
+#else
+	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 size = textureSize(samplerBlueNoise, 0);
+	ivec2 off = ivec2(gSampleDimension * 127, gSampleDimension * 63);
+	vec2 uv = vec2((px + off) % size) / vec2(size);
+	float bn = texture(samplerBlueNoise, uv).r;
+	return fract(bn + float(iFrame)*0.61803398875);
+#endif
 }
 
 vec2 fnSampleUniform2(inout float seed) {
+#if skRandom == skRandomSine
 	return (
 		  fract(sin(vec2(seed+=0.1,seed+=0.1))
 		* vec2(43758.5453123,22578.1459123))
 	);
+#else
+	return vec2(fnSampleUniform(seed), fnSampleUniform(seed));
+#endif
 }
 
 vec3 fnSampleUniform3(inout float seed) {
+#if skRandom == skRandomSine
 	return (
 		  fract(sin(vec3(seed+=0.1,seed+=0.1,seed+=0.1))
 		* vec3(43758.5453123,22578.1459123,842582.632592))
 	);
+#else
+	return (
+		vec3(fnSampleUniform(seed), fnSampleUniform(seed), fnSampleUniform(seed))
+	);
+#endif
 }
 
 // -----------------------------------------------------------------------------
@@ -413,6 +458,7 @@ f32v3 fnSceneNormal(
 // -----------------------------------------------------------------------------
 
 uniform float iTime;
+uniform float iMillis;
 
 f32v2 fnSceneMapLights(f32v3 o);
 

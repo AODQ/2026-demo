@@ -21,10 +21,7 @@ static void setup_controls() {
 	f32 const STEP = 0.02f;
 
 	// always-on encoders 1 and 2
-	IntroControl const kL = intro_add_control("uKnobL", 0.5f, 0.0f, 1.0f);
 	IntroControl const kR = intro_add_control("uKnobR", 0.5f, 0.0f, 1.0f);
-	intro_bind_key('Y', kL, -STEP);  // enc1 CCW
-	intro_bind_key('U', kL, +STEP);  // enc1 CW
 	intro_bind_key('H', kR, -STEP);  // enc2 CCW
 	intro_bind_key('J', kR, +STEP);  // enc2 CW
 
@@ -100,7 +97,7 @@ i32 main(i32, char * *) {
 	IntroImage const imgPresent = intro_add_image(&imgDescPresent);
 
 	IntroImage const imgBlueNoise = (
-		intro_load_texture_png("shaders/blue_noise.png")
+		intro_load_texture_png("shaders/bluenoise.png")
 	);
 
 	// -- create buffers

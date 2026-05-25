@@ -3,8 +3,6 @@ layout(std430, binding = 0) buffer Buffer_Radiance { vec4 radiance[]; };
 
 layout(binding = 0, rgba16f) uniform image2D imgHistory;
 
-uniform int iFrame;
-
 FnSceneMapStub;
 
 void main() {
@@ -17,7 +15,7 @@ void main() {
 
 	// reset history
 	if (iFrame == 0) {
-		// hist = vec4(0.0f);
+		hist = vec4(0.0f);
 	}
 
 	if (iFrame != 0) {
@@ -35,7 +33,7 @@ void main() {
 		// converge with history using a running average
 		float alpha = 1.0f / (hist.a + 1.0f);
 		if (skConverge == 0) {
-			alpha = 0.3f;
+			alpha = 0.5f;
 		}
 		const vec3 accum = mix(hist.rgb, col.rgb, alpha);
 
