@@ -30,6 +30,8 @@ struct vec4 { f32 x, y, z, w; };
 #define INTRO_MAX_READS 8
 #define INTRO_MAX_BUFFERS 8
 
+#define INTRO_SLOTS 64
+
 typedef i32 IntroImage;
 typedef i32 IntroBuffer;
 typedef i32 IntroControl;
@@ -118,4 +120,8 @@ void intro_buffer_upload(IntroBuffer buf, void const * data, size_t bytes);
 IntroControl intro_add_control(char const * name, f32 def, f32 lo, f32 hi);
 void intro_bind_key(i32 vk, IntroControl ctrl, f32 delta);
 void intro_bind_reset(i32 vk, IntroControl ctrl);
+
+void intro_bind_select(i32 vk, i32 slot);
+void intro_bind_slot_key(i32 vk, f32 delta);
+f32 intro_slot_value(i32 slot);
 f32 intro_control_value(IntroControl ctrl);

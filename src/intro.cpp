@@ -85,6 +85,7 @@ typedef void(APIENTRY* PFN_DeleteProgram)(GLuint);
 typedef void(APIENTRY* PFN_UseProgram)(GLuint);
 typedef GLint(APIENTRY* PFN_GetUniformLocation)(GLuint, const char*);
 typedef void(APIENTRY* PFN_Uniform1f)(GLint, GLfloat);
+typedef void(APIENTRY* PFN_Uniform1fv)(GLint, GLsizei, const GLfloat*);
 typedef void(APIENTRY* PFN_Uniform2f)(GLint, GLfloat, GLfloat);
 typedef void(APIENTRY* PFN_Uniform1i)(GLint, GLint);
 typedef void(APIENTRY* PFN_DispatchCompute)(GLuint, GLuint, GLuint);
@@ -122,6 +123,7 @@ static PFN_DeleteProgram glDeleteProgram;
 static PFN_UseProgram glUseProgram;
 static PFN_GetUniformLocation glGetUniformLocation;
 static PFN_Uniform1f glUniform1f;
+static PFN_Uniform1fv glUniform1fv;
 static PFN_Uniform2f glUniform2f;
 static PFN_Uniform1i glUniform1i;
 static PFN_DispatchCompute glDispatchCompute;
@@ -174,6 +176,7 @@ static bool load_gl() {
 	LOAD_GL(Uniform1f);
 	LOAD_GL(Uniform2f);
 	LOAD_GL(Uniform1i);
+	LOAD_GL(Uniform1fv);
 	LOAD_GL(DispatchCompute);
 	LOAD_GL(MemoryBarrier);
 	LOAD_GL(BindImageTexture);
@@ -228,7 +231,7 @@ typedef struct {
 	int buffers[INTRO_MAX_BUFFERS];
 	int bufferCount;
 	GLuint program;
-	GLint uTime, uFrame;
+	GLint uTime, uFrame, uSlots;
 	GLint ctrlLoc[MAX_CONTROLS];
 	long long mtime;
 } Pass;
@@ -243,6 +246,8 @@ typedef struct {
 	int ctrl;
 	float delta;
 	bool reset;
+	int selectSlot;
+	bool slotDelta;
 } KeyBind;
 
 static struct {
@@ -269,6 +274,9 @@ static struct {
 	int frame;
 	float time;
 	LARGE_INTEGER freq, t0;
+
+	float slot[INTRO_SLOTS];
+	int selectedSlot;
 
 	long long sharedMtime;
 } E;
@@ -304,7 +312,7 @@ static GLuint compile_compute(const char* src) {
 		char log[4096];
 		glGetShaderInfoLog(s, sizeof(log), 0, log);
 		LOG("compute compile error:\n%s\n", log);
-		LOG("^^ shader filed: %s.comp\n", E.pass[E.passCount].name);
+		LOG("^^ shader failed: %s.comp\n", E.pass[E.passCount].name);
 		glDeleteShader(s);
 		return 0;
 	}
@@ -330,6 +338,7 @@ static void adopt(Pass* p, GLuint prog) {
 	p->program = prog;
 	p->uTime = glGetUniformLocation(prog, "iTime");
 	p->uFrame = glGetUniformLocation(prog, "iFrame");
+	p->uSlots = glGetUniformLocation(prog, "uSlots");
 	for (int c = 0; c < E.ctrlCount; c++)
 		p->ctrlLoc[c] = glGetUniformLocation(prog, E.ctrl[c].name);
 }
@@ -447,6 +456,7 @@ static void run_pass(Pass* p) {
 	glUseProgram(p->program);
 	if (p->uTime >= 0) glUniform1f(p->uTime, E.time);
 	if (p->uFrame >= 0) glUniform1i(p->uFrame, E.frame);
+	if (p->uSlots >= 0) glUniform1fv(p->uSlots, INTRO_SLOTS, E.slot);
 	for (int c = 0; c < E.ctrlCount; c++)
 		if (p->ctrlLoc[c] >= 0) glUniform1f(p->ctrlLoc[c], E.ctrl[c].value);
 
@@ -503,6 +513,21 @@ static void on_key(int vk) {
 	for (int i = 0; i < E.keyCount; i++) {
 		const KeyBind& b = E.key[i];
 		if (b.vk != vk) continue;
+		// slot selection
+		if (b.selectSlot >= 0) {
+			E.selectedSlot = b.selectSlot;
+			return;
+		}
+		printf("slot %d -> %.3f\n", E.selectedSlot, E.slot[E.selectedSlot]);
+		// nudge the currently-selected slot
+		if (b.slotDelta) {
+			int s = E.selectedSlot;
+			float v = E.slot[s] + b.delta;
+			E.slot[s] = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+			printf("slot %d -> %.3f\n", s, E.slot[s]);
+			return;
+		}
+		// normal control
 		Control& c = E.ctrl[b.ctrl];
 		if (b.reset) {
 			c.value = c.def;
@@ -786,19 +811,28 @@ IntroControl intro_add_control(const char* name, float def, float lo,
 
 void intro_bind_key(int vk, IntroControl ctrl, float delta) {
 	if (E.keyCount >= MAX_KEYS || ctrl < 0) return;
-	E.key[E.keyCount++] = (KeyBind){ vk, ctrl, delta, false };
+	E.key[E.keyCount++] = (KeyBind){ vk, ctrl, delta, false, -1, false };
 }
-
 
 void intro_bind_reset(int vk, IntroControl ctrl) {
 	if (E.keyCount >= MAX_KEYS || ctrl < 0) return;
-	E.key[E.keyCount++] = (KeyBind){ vk, ctrl, 0.0f, true };
+	E.key[E.keyCount++] = (KeyBind){ vk, ctrl, 0.0f, true, -1, false };
 }
 
+void intro_bind_select(int vk, int slot) {
+	if (E.keyCount >= MAX_KEYS || slot < 0 || slot >= INTRO_SLOTS)
+		return;
+	E.key[E.keyCount++] = (KeyBind){ vk, -1, 0.0f, false, slot, false };
+}
 
-float intro_control_value(IntroControl ctrl) {
-	if (ctrl < 0 || ctrl >= E.ctrlCount) return 0.0f;
-	return E.ctrl[ctrl].value;
+void intro_bind_slot_key(int vk, float delta) {
+	if (E.keyCount >= MAX_KEYS) return;
+	E.key[E.keyCount++] = (KeyBind){ vk, -1, delta, false, -1, true };
+}
+
+float intro_slot_value(int slot) {
+	if (slot < 0 || slot >= INTRO_SLOTS) return 0.0f;
+	return E.slot[slot];
 }
 
 

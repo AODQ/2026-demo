@@ -11,22 +11,58 @@
 // shared buffer
 #include "shared.glsl"
 
+// controls
+#include <windows.h>
+#include <GL/gl.h>
+
 // ---------------------------------------------------------------------------
 
 static void setup_controls() {
 	f32 const STEP = 0.02f;
-	IntroControl const k0 = intro_add_control("uKnob0", 0.5f, 0.0f, 1.0f);
-	IntroControl const k1 = intro_add_control("uKnob1", 0.5f, 0.0f, 1.0f);
-	IntroControl const k2 = intro_add_control("uKnob2", 0.5f, 0.0f, 1.0f);
-	intro_bind_key(VK_F1, k0, -STEP);
-	intro_bind_key(VK_F2, k0, +STEP);
-	intro_bind_reset(VK_F3, k0);
-	intro_bind_key(VK_F4, k1, -STEP);
-	intro_bind_key(VK_F5, k1, +STEP);
-	intro_bind_reset(VK_F6, k1);
-	intro_bind_key(VK_F7, k2, -STEP);
-	intro_bind_key(VK_F8, k2, +STEP);
-	intro_bind_reset(VK_F9, k2);
+
+	// always-on encoders 1 and 2
+	IntroControl const kL = intro_add_control("uKnobL", 0.5f, 0.0f, 1.0f);
+	IntroControl const kR = intro_add_control("uKnobR", 0.5f, 0.0f, 1.0f);
+	intro_bind_key('Y', kL, -STEP);  // enc1 CCW
+	intro_bind_key('U', kL, +STEP);  // enc1 CW
+	intro_bind_key('H', kR, -STEP);  // enc2 CCW
+	intro_bind_key('J', kR, +STEP);  // enc2 CW
+
+	// third encoder edits whichever slot is selected
+	intro_bind_slot_key('B', -STEP); // enc3 CCW
+	intro_bind_slot_key('N', +STEP); // enc3 CW
+
+	// slot selectors. layer * 16 + position. QMK sends different keycodes
+	// per layer (letters / numbers / F1-12 / F13-24), so each maps to a
+	// distinct slot index.
+	// --- layer 1 (letters) -> slots 0..11
+	intro_bind_select('Q', 0);  intro_bind_select('W', 1);
+	intro_bind_select('E', 2);  intro_bind_select('R', 3);
+	intro_bind_select('A', 4);  intro_bind_select('S', 5);
+	intro_bind_select('D', 6);  intro_bind_select('F', 7);
+	intro_bind_select('Z', 8);  intro_bind_select('X', 9);
+	intro_bind_select('C', 10); intro_bind_select('V', 11);
+	// --- layer 2 (number row) -> slots 16..27
+	intro_bind_select('1', 16); intro_bind_select('2', 17);
+	intro_bind_select('3', 18); intro_bind_select('4', 19);
+	intro_bind_select('5', 20); intro_bind_select('6', 21);
+	intro_bind_select('7', 22); intro_bind_select('8', 23);
+	intro_bind_select('9', 24); intro_bind_select('0', 25);
+	intro_bind_select(VK_OEM_MINUS, 26); intro_bind_select(VK_OEM_PLUS, 27);
+	// --- layer 3 (F1-F12) -> slots 32..43
+	intro_bind_select(VK_F1, 32);  intro_bind_select(VK_F2, 33);
+	intro_bind_select(VK_F3, 34);  intro_bind_select(VK_F4, 35);
+	intro_bind_select(VK_F5, 36);  intro_bind_select(VK_F6, 37);
+	intro_bind_select(VK_F7, 38);  intro_bind_select(VK_F8, 39);
+	intro_bind_select(VK_F9, 40);  intro_bind_select(VK_F10, 41);
+	intro_bind_select(VK_F11, 42); intro_bind_select(VK_F12, 43);
+	// --- layer 4 (F13-F24) -> slots 48..59
+	intro_bind_select(VK_F13, 48); intro_bind_select(VK_F14, 49);
+	intro_bind_select(VK_F15, 50); intro_bind_select(VK_F16, 51);
+	intro_bind_select(VK_F17, 52); intro_bind_select(VK_F18, 53);
+	intro_bind_select(VK_F19, 54); intro_bind_select(VK_F20, 55);
+	intro_bind_select(VK_F21, 56); intro_bind_select(VK_F22, 57);
+	intro_bind_select(VK_F23, 58); intro_bind_select(VK_F24, 59);
 }
 
 // ---------------------------------------------------------------------------

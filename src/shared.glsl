@@ -43,6 +43,17 @@ struct Material {
 #define skLightsMax 128
 // TODO v this needs to be written directly into a storage buffer by init!
 #define skLightsInScene 1
+
+// for miss, hit sky. this is always just the number of lights + 1
+#define skLightIndexSky (skLightsInSceneInclSky-1)
+#define skLightIndexNone (-1)
+#define LIGHT_IDX(fl) int(fl - 100.0)
+
+#define skLightSkyEmission (vec3(0.88, 0.86, 0.63) * 50.0)
+
+// sky is a special light
+#define skLightsInSceneInclSky (skLightsInScene+1)
+
 struct Light {
 	f32v3 ori;
 	f32v3 nor;
@@ -323,12 +334,12 @@ f32v3 To_Cartesian_T ( float theta, float phi ) {
   return f32v3(cos(phi)*sin(theta), sin(phi)*sin(theta), cos(theta));
 }
 f32v3 To_Cartesian ( float cos_theta, float phi ) {
-  float sin_theta = sqrt(max(0.0, 1.0 - cos_theta));
+  float sin_theta = sqrt(max(0.0, 1.0 - cos_theta*cos_theta));
   return f32v3(cos(phi)*sin_theta, sin(phi)*sin_theta, cos_theta);
 }
 
 vec3 fnSampleHemisphereCos(
-	f32v3 wi, f32v3 N,
+	f32v3 N,
 	out float pdf, inout float seed
 ) {
   vec2 u = fnSampleUniform2(seed);
@@ -394,8 +405,6 @@ f32v3 fnSceneNormal(
 // -----------------------------------------------------------------------------
 
 uniform float iTime;
-
-#define LIGHT_IDX(fl) int(fl - 100.0)
 
 f32v2 fnSceneMapLights(f32v3 o);
 
@@ -503,20 +512,13 @@ f32v2 fnSceneMap(f32v3 o) {
 // -- debug with knobs
 // -----------------------------------------------------------------------------
 
-uniform float uKnob0;
-uniform float uKnob1;
-uniform float uKnob2;
+uniform float uKnobL;
+uniform float uKnobR;
+uniform float uSlots[64];
 
-f32v2 knobV2Impl() {
-	return f32v2(uKnob1, uKnob2);
+f32v3 knob3(int offset) {
+	return f32v3(uSlots[offset], uSlots[offset+1], uSlots[offset+2]);
 }
-
-f32v3 knob3Impl() {
-	return f32v3(uKnob0, uKnob1, uKnob2) * 2.0 - f32v3(1.0);
-}
-
-#define knob3 knob3Impl()
-#define knob3Nor knob3Impl()
 
 #define NOR3(X, Y, Z) \
 	((f32v3(X, Y, Z) - f32v3(0.5)) * 2.0)

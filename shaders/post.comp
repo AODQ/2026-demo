@@ -1,3 +1,4 @@
+#line 2
 layout(binding = 0, rgba16f) uniform image2D imgOut;
 
 layout(binding = 0) uniform sampler2D imgHistory;
@@ -55,7 +56,7 @@ float PrintValue( vec2 vStringCoords, float fValue, float fMaxDigits, float fDec
 	return floor(mod((fCharBin / pow(2.0, floor(fract(vStringCoords.x) * 4.0) + (floor(vStringCoords.y * 5.0) * 4.0))), 2.0));
 }
 
-float PrintFloat(ivec2 px, vec2 gridPos, float value) {
+float PrintFloat(ivec2 px, vec2 gridPos, float value, float decimals = 2.0f) {
 	vec2 fontSize = vec2(8.0, 12.0);
 	vec2 fontOffset = vec2(fontSize.x*5.0f, fontSize.y*1.5f);
 
@@ -68,7 +69,7 @@ float PrintFloat(ivec2 px, vec2 gridPos, float value) {
 	// bring the first digit into normalized space
 	// currently in (0, 0) -> (skResolutionX, skResolutionY) space
 	vec2 normalized = (vec2(px) - fontOffset) / fontSize;
-	return PrintValue(normalized, value, 3.0, 2.0);
+	return PrintValue(normalized, value, 3.0, decimals);
 }
 
 uniform int iFrame;
@@ -86,11 +87,37 @@ void main() {
 	// print knobs [[DEBUG STRIP ME OUT]]
 	{
 		float knob = 0.0f;
-		knob += PrintFloat(px, vec2(0, 1), uKnob0);
-		knob += PrintFloat(px, vec2(1, 1), uKnob1);
-		knob += PrintFloat(px, vec2(0.5, 0), uKnob2);
+		knob += PrintFloat(px, vec2(0, 1), uKnobL);
+		knob += PrintFloat(px, vec2(1, 1), uKnobR);
 		knob += PrintFloat(px, vec2(12.5, 0), iTime);
 		knob += PrintFloat(px, vec2(12.5, 1), iFrame);
+
+		// print each slot
+		int activeSlots = 0;
+		for (int i = 0; i < 64; ++i) {
+			if (uSlots[i] < 0.001f) {
+				continue;
+			}
+
+			knob += (
+				PrintFloat(
+					px,
+					vec2(-1.0, 2) + vec2(0.0f, float(activeSlots)),
+					float(i),
+					0.0f
+				)
+			);
+
+			knob += (
+				PrintFloat(
+					px,
+					vec2(-0.5, 2) + vec2(0.0f, float(activeSlots)),
+					uSlots[i]
+				)
+			);
+
+			++activeSlots;
+		}
 
 		// invert color
 		if (knob > 0.0f) {

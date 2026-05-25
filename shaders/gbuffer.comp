@@ -45,9 +45,9 @@ void main() {
 	f32 wrapY = 0.69;
 	f32 wrapZ = 0.23;
 #else
-	f32 wrapX = uKnob2*TAU;
-	f32 wrapY = uKnob1;
-	f32 wrapZ = uKnob0;
+	f32 wrapX = uKnobL*TAU;
+	f32 wrapY = 0.69;
+	f32 wrapZ = uKnobR;
 #endif
 	f32v3 cameraOri = f32v3(cos(wrapX), wrapY, sin(wrapX))*wrapZ*32.0;
 	Ray eye = fnLookAtRay(uv, cameraOri, f32v3(-1.0, 0.5, 0.0));

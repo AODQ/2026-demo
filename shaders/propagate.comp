@@ -31,8 +31,17 @@ f32v2 fnSceneMapLights(f32v3 o) {
 
 f32v3 fnEmitterSample(
 	int lightIndex,
+	f32v3 normal,
 	inout f32 seed
 ) {
+	if (lightIndex == skLightIndexSky) {
+		// uniform sampling of the hemisphere for sky
+		vec2 u = fnSampleUniform2(seed);
+		return Reorient_Hemisphere(
+			normalize(To_Cartesian(sqrt(u.y), TAU*u.x)),
+			normal
+		);
+	}
 	const f32v2 uv = (fnSampleUniform2(seed) - 0.5f) * 2.0f;
 	const Light light = inLight[lightIndex];
 	// sample a point on the surface of the light
@@ -49,7 +58,18 @@ f32v3 fnEmitterSample(
 	return samplePoint;
  }
 
+f32v3 fnEmitterF(int lightIndex, f32v3 wo) {
+	if (lightIndex == skLightIndexSky) {
+		return skLightSkyEmission;
+	}
+	return inLight[lightIndex].emission;
+}
+
 f32 fnEmitPdf(int lightIndex, f32v3 wo, f32 dist) {
+	if (lightIndex == skLightIndexSky) {
+		// uniform sampling of the hemisphere for sky
+		return 1.0f / (2.0f * PI);
+	}
 	const Light l = inLight[lightIndex];
 	const f32 area = 4.0f * l.halfExtent.x * l.halfExtent.y;
 	// no need for max(dot(N, wo), 0) because fnValidEmitter will cull direction
@@ -58,6 +78,13 @@ f32 fnEmitPdf(int lightIndex, f32v3 wo, f32 dist) {
 }
 
 bool fnValidEmitter(int lightIndex, f32v3 wo) {
+	if (lightIndex < 0 || lightIndex >= skLightsInSceneInclSky) {
+		return false;
+	}
+	if (lightIndex == skLightIndexSky) {
+		// sky is visible from all directions
+		return true;
+	}
 	const Light l = inLight[lightIndex];
 	return dot(l.nor, wo) > 0.0f;
 }
@@ -146,7 +173,7 @@ f32v3 fnBsdfSample (
 	f32 diffChance = fnSampleUniform(seed);
 	// Diffuse lobe: sample direction, then report the shared combined pdf.
 	if ( diffChance < mat.diffuse ) {
-		f32v3 wo = fnSampleHemisphereCos(wi, N, pdf, seed);
+		f32v3 wo = fnSampleHemisphereCos(N, pdf, seed);
 		pdf = fnBsdfPdf(N, wi, wo, mat);
 		return wo;
 	}
@@ -242,24 +269,27 @@ int fnIrradiance(
 	rayWo = Ray(itOri + itNor*0.1f, bsdfWo);
 	hitWo = fnSceneMarch(rayWo);
 
-	int lightIndex = -1;
+	int lightIndex = skLightIndexNone;
 
 	// -- indirect irradiance (bsdf path)
 	{
-		// hit sky
+		// fetch the light index if it hit a light
+		int bsdfLightIndex = LIGHT_IDX(hitWo.y);
+
+		// hit sky. that's okay, just specialize it for sky
 		if (hitWo.x < 0.0f) {
-			return skHitNone;
+			bsdfLightIndex = skLightIndexSky;
 		}
 
 		// apply bsdf contribution to emitter when hitting a light
-		const int bsdfLightIndex = LIGHT_IDX(hitWo.y);
 		if (fnValidEmitter(bsdfLightIndex, bsdfWo)) {
 			const f32 emitterDist = hitWo.x;
 
 			// use NEE sampling strategy for PDF so that it can be combined
 			// with direct irradiance
 			const f32 emitPdf = (
-				fnEmitPdf(bsdfLightIndex, bsdfWo, emitterDist) / skLightsInScene
+				  fnEmitPdf(bsdfLightIndex, bsdfWo, emitterDist)
+				/ skLightsInSceneInclSky
 			);
 
 			// balance heuristic weight for BSDF strategy
@@ -271,7 +301,7 @@ int fnIrradiance(
 			// throughput contains the bounce's bsdfF.
 			// arriving light is just emission, throughput and MIS weight.
 			const f32v3 radiance = (
-				inLight[bsdfLightIndex].emission
+				  fnEmitterF(bsdfLightIndex, bsdfWo)
 				* irradianceThroughput
 				* misWeight
 			);
@@ -285,22 +315,33 @@ int fnIrradiance(
 		// if hit a light, then use the NEE sampling strategy on the same
 		// light. otherwise just grab random light index
 		if (lightIndex == -1) {
-			lightIndex = int(fnSampleUniform(seed) * skLightsInScene);
+			lightIndex = int(fnSampleUniform(seed) * skLightsInSceneInclSky);
 		}
 
-		const f32v3 emitterPos = fnEmitterSample(lightIndex, seed);
+		const f32v3 emitterPos = fnEmitterSample(lightIndex, itNor, seed);
 		const f32v3 emitterWo = normalize(emitterPos - itOri);
 		const f32 emitterDist = length(emitterPos - itOri);
-		const f32v2 lightMarch = (
-			fnSceneMarch(Ray(itOri + emitterWo*0.01f, emitterWo))
-		);
-		const bool visible = (
+
+		f32v2 lightMarch = f32v2(999999.0f, -1.0f);
+
+		// only march if the emitter is in the same hemisphere as the normal
+		const bool sameHemisphere = dot(itNor, emitterWo) > 0.0f;
+		if (sameHemisphere) {
+			lightMarch = fnSceneMarch(Ray(itOri + itNor*0.01f, emitterWo));
+		}
+
+		bool visible = (
 				(LIGHT_IDX(lightMarch.y) == lightIndex)
 			&& fnValidEmitter(lightIndex, emitterWo)
 		);
+		if (sameHemisphere && lightIndex == skLightIndexSky) {
+			// sky ray must miss otherwise non-visible to sky
+			 visible = (lightMarch.y == -1.0f);
+		}
 		if (visible) {
 			const f32 pdf = (
-				fnEmitPdf(lightIndex, emitterWo, emitterDist) / skLightsInScene
+				  fnEmitPdf(lightIndex, emitterWo, emitterDist)
+				/ skLightsInSceneInclSky
 			);
 			// reject degenerate PDFs to prevent NaNs
 			if (pdf <= 0.0f) {
@@ -308,9 +349,8 @@ int fnIrradiance(
 			}
 			const f32 dotNorWo = max(dot(itNor, emitterWo), 0.0f);
 			const f32v3 radiance = (
-				  inLight[lightIndex].emission
-				*
-				fnBsdfF(itNor, itWi, emitterWo, mat)
+				  fnEmitterF(lightIndex, emitterWo)
+				* fnBsdfF(itNor, itWi, emitterWo, mat)
 				* dotNorWo
 				/ pdf
 			);

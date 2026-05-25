@@ -14,7 +14,7 @@ void main() {
 	// -- light
 	if (i == 0u) {
 		light[0].ori = f32v3(NOR3(0.88, 0.86, 0.63));
-		light[0].nor = normalize(knob3Nor);
+		light[0].nor = normalize(f32v3(-0.88, -0.86, -0.63));
 		light[0].halfExtent = f32v2(1.19, 0.19);
 		light[0].emission = vec3(1.0, 1.0, 1.0) * 50.0;
 
@@ -27,16 +27,16 @@ void main() {
 	// -- material setup, just one thread
 	if (i == 0u) {
 		material[0].albedo = vec3(0.11f, 0.55f, 0.21f) * albedoMult;
-		material[0].alpha = 0.0;
+		material[0].alpha = 0.1;
 		material[0].diffuse = 1.0;
 		material[0].transmittive = 0.0;
 		material[0].fresnel = 1.0;
 
 		material[1].albedo = vec3(0.63f, 0.17f, 0.85f) * albedoMult;
-		material[1].alpha = 0.84;
-		material[1].diffuse = 0.07;
+		material[1].alpha = 0.1;
+		material[1].diffuse = 1.00;
 		material[1].transmittive = 0.0;
-		material[1].fresnel = 0.84;
+		material[1].fresnel = 1.0;
 
 		material[2].albedo = vec3(0.19, 0.09, 0.03) * albedoMult;
 		material[2].alpha = 1.0;
@@ -83,15 +83,15 @@ void main() {
 
 	#if TUNE_MATERIAL == TUNE_MATERIAL_ALBEDO
 	if (i == 0u) {
-		material[TUNE_MATERIAL_ID].albedo = vec3(uKnob0, uKnob1, uKnob2);
+		// material[TUNE_MATERIAL_ID].albedo = vec3(uKnob0, uKnob1, uKnob2);
 	}
 	#endif
 
 	#if TUNE_MATERIAL == TUNE_MATERIAL_SURFACE
 	if (i == 0u) {
-		material[TUNE_MATERIAL_ID].alpha = uKnob2;
-		material[TUNE_MATERIAL_ID].diffuse = uKnob1;
-		material[TUNE_MATERIAL_ID].fresnel = uKnob0;
+		// material[TUNE_MATERIAL_ID].alpha = uKnob2;
+		// material[TUNE_MATERIAL_ID].diffuse = uKnob1;
+		// material[TUNE_MATERIAL_ID].fresnel = uKnob0;
 	}
 	#endif
 }
