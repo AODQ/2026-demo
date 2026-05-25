@@ -68,7 +68,8 @@ struct Light {
 // -- global state
 // -----------------------------------------------------------------------------
 
-layout(binding = 0) uniform sampler2D samplerBlueNoise;
+layout(binding = 0) uniform sampler2DArray samplerStbnScalar;
+layout(binding = 1) uniform sampler2DArray samplerStbnVec2;
 uniform float uKnobR;
 uniform int iFrame;
 uniform float uSlots[64];
@@ -77,9 +78,9 @@ uniform float uSlots[64];
 // -- macro tuning
 // -----------------------------------------------------------------------------
 
-#define skPropagationIterations 1
-#define skSamplesPerPixel 4
-#define skConverge 1
+#define skPropagationIterations 2
+#define skSamplesPerPixel 2
+#define skConverge 0
 
 #define skResolution ivec2(skResolutionX, skResolutionY)
 
@@ -332,10 +333,14 @@ float fnSampleSeed(ivec2 px, int iteration=0) {
 		)
 	);
 #elif skRandom == skRandomBlueNoise
-	ivec2 size = textureSize(samplerBlueNoise, 0);
-	vec2 uv = vec2(px % size) / vec2(size);
-	float bn = texture(samplerBlueNoise, uv).r;
-	return fract(bn + float(iFrame)*R1 + float(iteration)*0.56984029099);
+	const ivec3 size = textureSize(samplerStbnScalar, 0);
+	const ivec3 c = (
+		ivec3(
+			px % size.xy,
+			(iFrame * skSamplesPerPixel + iteration + 16) % size.z
+		)
+	);
+	return texelFetch(samplerStbnScalar, c, 0).r;
 #endif
 }
 
@@ -345,34 +350,23 @@ f32v2 fnSampleSeed2(ivec2 px, int iteration=0) {
 		vec2(1.0, 1.3)*float(iteration)*0.61803398875
 	);
 #else
-	ivec2 size = textureSize(samplerBlueNoise, 0);
-	vec2 uv = vec2(px % size) / vec2(size);
-	vec2 bn = texture(samplerBlueNoise, uv).rg;
-	return fract(bn + float(iFrame)*R2 + float(iteration)*R2*0.56984029099);
-#endif
-}
-
-f32v3 fnSampleSeed3(ivec2 px, int iteration=0) {
-#if skRandom == skRandomSine
-	return vec3(fnSampleSeed(px, iteration)) + (
-		vec3(1.0, 1.3, 1.7)*float(iteration)*0.61803398875
+	ivec3 size = textureSize(samplerStbnVec2, 0);
+	const ivec3 c = (
+		ivec3(
+			px % size.xy,
+			(iFrame * skSamplesPerPixel + iteration + 16) % size.z
+		)
 	);
-#else
-	ivec2 size = textureSize(samplerBlueNoise, 0);
-	const f32v2 uv = vec2(px % size) / vec2(size);
-	const f32v3 bn = texture(samplerBlueNoise, uv).rgb;
-	return fract(bn + float(iFrame)*R3 + float(iteration)*R3*0.56984029099);
+	return texelFetch(samplerStbnVec2, c, 0).rg;
 #endif
 }
-
 
 
 float fnSampleUniform(inout float seed) {
 #if skRandom == skRandomSine
 	return fract(sin(seed += 0.1)*43758.5453123);
 #else
-	seed = fract(seed + R1);
-	return seed;
+	return fract(sin(seed += 0.1)*43758.5453123);
 #endif
 }
 
@@ -383,19 +377,10 @@ vec2 fnSampleUniform2(inout f32v2 seed) {
 		* vec2(43758.5453123,22578.1459123))
 	);
 #else
-	seed = fract(seed + R2);
-	return seed;
-#endif
-}
-
-vec3 fnSampleUniform3(inout f32v3 seed) {
-#if skRandom == skRandomSine
-	return (
-		  fract(sin(vec3(seed.r+=0.1,seed.g+=0.1,seed.b+=0.1))
-		* vec3(43758.5453123,22578.1459123,842582.632592))
+	seed = vec2(
+		fract(sin(dot(seed, vec2(127.1, 311.7))) * 43758.5453),
+		fract(sin(dot(seed, vec2(269.5, 183.3))) * 22151.0)
 	);
-#else
-	seed = fract(seed + R3);
 	return seed;
 #endif
 }

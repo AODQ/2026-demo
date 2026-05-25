@@ -37,8 +37,8 @@ void main() {
 	uv.x /= skResolution.y / float(skResolution.x);
 
 	// -- construct seed
-	f32 seed = fnSampleSeed(px);
-	f32v2 seed2 = fnSampleSeed2(px);
+	f32 seed = fnSampleSeed(px, 16);
+	f32v2 seed2 = fnSampleSeed2(px, 16);
 
 	// -- jitter UV
 	uv += (

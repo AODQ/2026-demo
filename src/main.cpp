@@ -4,6 +4,7 @@
 #include "intro.h"
 #include "embedded_shaders.h"
 
+#include <cstdio>
 #include <windows.h>  // VK_F13.. for the key map
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,23 @@ i32 main(i32, char * *) {
 		intro_load_texture_png("shaders/bluenoise.png")
 	);
 
+	IntroImage const imgStbnScalar = (
+		intro_load_texture_array_png(
+			"shaders/textures/stbn_scalar_2Dx1Dx1D_128x128x64x1",
+			64
+		)
+	);
+	IntroImage const imgStbnVec2 = (
+		intro_load_texture_array_png(
+			"shaders/textures/stbn_vec2_2Dx1D_128x128x64",
+			64
+		)
+	);
+
+	printf("loaded images: scene=%d history=%d present=%d blueNoise=%d stbnScalar=%d stbnVec2=%d\n",
+		   imgScene, imgHistory, imgPresent, imgBlueNoise,
+		   imgStbnScalar, imgStbnVec2);
+
 	// -- create buffers
 
 	IntroBufferDesc const bufDescPalette {
@@ -135,8 +153,8 @@ i32 main(i32, char * *) {
 		.dispatch = IntroDispatch_Explicit,
 		.gx = 1, .gy = 1, .gz = 1,
 		.write = INTRO_NONE,
-		.reads = { imgBlueNoise },
-		.readCount = 1,
+		.reads = { imgStbnScalar, imgStbnVec2 },
+		.readCount = 2,
 		.buffers = { bufPalette, bufMaterials, bufLights, },
 		.bufferCount = 3,
 	};
@@ -147,8 +165,8 @@ i32 main(i32, char * *) {
 		.dispatch = IntroDispatch_Image,
 		.localX = 8, .localY = 8,
 		.write = INTRO_NONE,
-		.reads = { imgBlueNoise },
-		.readCount = 1,
+		.reads = { imgStbnScalar, imgStbnVec2 },
+		.readCount = 2,
 		.buffers = { bufGbuffer, bufLights, },
 		.bufferCount = 2,
 	};
@@ -159,8 +177,8 @@ i32 main(i32, char * *) {
 		.dispatch = IntroDispatch_Image,
 		.localX = 8, .localY = 8,
 		.write = INTRO_NONE,
-		.reads = { imgBlueNoise },
-		.readCount = 1,
+		.reads = { imgStbnScalar, imgStbnVec2 },
+		.readCount = 2,
 		.buffers = { bufGbuffer, bufRadiance, bufMaterials, bufLights, },
 		.bufferCount = 4,
 	};
@@ -170,8 +188,8 @@ i32 main(i32, char * *) {
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
 		.write = imgHistory,
-		.reads = { imgBlueNoise, imgHistory },
-		.readCount = 2,
+		.reads = { imgStbnScalar, imgStbnVec2, imgHistory },
+		.readCount = 3,
 		.buffers = { bufRadiance },
 		.bufferCount = 1,
 	};
@@ -181,8 +199,8 @@ i32 main(i32, char * *) {
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
 		.write = imgPresent,
-		.reads = { imgBlueNoise, imgHistory },
-		.readCount = 2,
+		.reads = { imgStbnScalar, imgStbnVec2, imgHistory },
+		.readCount = 3,
 	};
 
 	intro_add_pass(&passInit);

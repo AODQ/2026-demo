@@ -295,7 +295,7 @@ int fnIrradiance(
 					irradianceThroughput.x,
 					max(irradianceThroughput.y, irradianceThroughput.z)
 				),
-				0.01f, 1.0f
+				0.15f, 1.0f
 			)
 		);
 		if (fnSampleUniform(seed) > rrProbability) {
@@ -395,6 +395,11 @@ int fnIrradiance(
 			if (pdf <= 0.0f) {
 				return returnEnum;
 			}
+
+			// compute MISweight
+			const f32 bsdfPdf = fnBsdfPdf(itNor, itWi, emitterWo, mat);
+			const f32 misWeight = pdf / (pdf + bsdfPdf);
+
 			const f32 dotNorWo = max(dot(itNor, emitterWo), 0.0f);
 			const f32v3 radiance = (
 				  fnEmitterF(lightIndex, emitterWo)
@@ -404,7 +409,9 @@ int fnIrradiance(
 			);
 			// use previous irradiance throughput as that one doesn't have the
 			// bsdfF of the future bounce
-			irradianceAccumulator += radiance * irradianceThroughputPrevious;
+			irradianceAccumulator += (
+				radiance * irradianceThroughputPrevious * misWeight
+			);
 			returnEnum = skHitDirect;
 		}
 	}
@@ -426,6 +433,15 @@ int fnPropagate(
 	// -- compute irradiance on surface
 	f32v3 bsdfWo;
 	Material mat = inMaterial[int(itMaterialId)];
+
+	// unpack material
+	if (itMaterialId ==0) {
+		// checkerboard pattern albedo
+		mat.albedo = (
+			((mod(floor(itOri.x*0.5f) + floor(itOri.z*0.5f), 2.0f)) < 1.0f)
+			? vec3(0.8f, 0.8f, 0.8f) : vec3(0.2f, 0.2f, 0.2f)
+		);
+	}
 
 	Ray rayWo;
 	f32v2 hitWo;
@@ -465,7 +481,7 @@ void main() {
 	const GBuffer gbuf = data[linearIdx];
 
 	// check if radiance has high alpha count, in which case can quit
-	if (iFrame > 100.0f) {
+	if (skConverge > 0 && iFrame > 100.0f) {
 		outRadiance[linearIdx] = vec4(0.0f);
 		return;
 	}

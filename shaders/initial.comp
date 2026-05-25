@@ -24,12 +24,33 @@ void main() {
 	// -- material
 
 	// common material
+	#define MTRL_WOOD(i) \
+		material[i].albedo = vec3(0.67, 0.65, 0.49) * albedoMult; \
+		material[i].alpha = 0.99*0.99; \
+		material[i].diffuse = 0.5*0.5; \
+		material[i].transmittive = 0.0; \
+		material[i].fresnel = 0.01*0.01;
+
 	#define MTRL_GRAYMETAL(i) \
 		material[i].albedo = vec3(0.96, 0.96, 1.0) * albedoMult; \
 		material[i].alpha = 0.01*0.01; \
 		material[i].diffuse = 0.05*0.05; \
 		material[i].transmittive = 0.0; \
 		material[i].fresnel = 0.5*0.5;
+
+	#define MTRL_FIRE(i) \
+		material[i].albedo = vec3(0.96, 0.16, 0.16); \
+		material[i].alpha = 0.99*0.99; \
+		material[i].diffuse = 0.99*0.99; \
+		material[i].transmittive = 0.0; \
+		material[i].fresnel = 0.5*0.5;
+
+	#define MTRL_PNKMTL(i) \
+		material[i].albedo = vec3(0.93, 0.29, 0.9) * albedoMult; \
+		material[i].alpha = 0.01*0.01; \
+		material[i].diffuse = 0.01*0.01; \
+		material[i].transmittive = 0.0; \
+		material[i].fresnel = 0.9*0.9;
 
 	#define MTRL_GOLD(i) \
 		material[i].albedo = vec3(1.0, 0.76, 0.05) * albedoMult; \
@@ -48,18 +69,18 @@ void main() {
 		material[0].fresnel = 0.3;
 
 
-		MTRL_GRAYMETAL(1);
-		MTRL_GRAYMETAL(2);
-		MTRL_GRAYMETAL(3);
-		MTRL_GRAYMETAL(4);
+		MTRL_PNKMTL(1);
+		MTRL_WOOD(2);
+		MTRL_WOOD(3);
+		MTRL_FIRE(4);
 
 		MTRL_GOLD(5);
 		MTRL_GRAYMETAL(6);
-		MTRL_GRAYMETAL(7);
+		MTRL_FIRE(7);
 	}
 
 	#define TUNE_MATERIAL 0
-	#define TUNE_MATERIAL_ID 0
+	#define TUNE_MATERIAL_ID 7
 
 	#if TUNE_MATERIAL > 0
 	if (i == 0u) {

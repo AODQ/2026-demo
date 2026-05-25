@@ -33,7 +33,7 @@ void main() {
 		// converge with history using a running average
 		float alpha = col.a / (hist.a + col.a);
 		if (skConverge == 0) {
-			alpha = 1.0f;
+			alpha = 0.95f;
 		}
 		const vec3 accum = mix(hist.rgb, col.rgb, alpha);
 

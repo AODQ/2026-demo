@@ -121,6 +121,8 @@ void intro_buffer_upload(IntroBuffer buf, void const * data, size_t bytes);
 // Requires stb_image.h to be present in src/.
 IntroImage intro_load_texture_png(char const * path);
 
+IntroImage intro_load_texture_array_png(char const * path, i32 layerCount);
+
 // Float controls exposed to every shader as `uniform float <name>`.
 IntroControl intro_add_control(char const * name, f32 def, f32 lo, f32 hi);
 void intro_bind_key(i32 vk, IntroControl ctrl, f32 delta);

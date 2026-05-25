@@ -1,7 +1,7 @@
 #line 2
 layout(binding = 0, rgba16f) uniform image2D imgOut;
 
-layout(binding = 1) uniform sampler2D samplerHistory;
+layout(binding = 2) uniform sampler2D samplerHistory;
 
 FnSceneMapStub;
 
@@ -120,15 +120,7 @@ void main() {
 		// invert color
 		if (knob > 0.0f) {
 			hist = vec4(1.0f) - hist;
-
-			// determine brightness of text and either increase or decrease
-			// contrast of the text to make it more visible
-			float textBrightness = length(hist.rgb) / sqrt(3.0f);
-			if (textBrightness > 0.5f) {
-				hist.rgb = mix(hist.rgb, vec3(1.0f), 0.5f);
-			} else {
-				hist.rgb = mix(hist.rgb, vec3(0.0f), 0.5f);
-			}
+			hist += vec4(0.2f);
 		}
 	}
 

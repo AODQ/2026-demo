@@ -45,6 +45,8 @@
 #define GL_SHADER_STORAGE_BARRIER_BIT 0x00002000
 #define GL_FRAMEBUFFER_BARRIER_BIT 0x00000400
 
+#define GL_TEXTURE_2D_ARRAY 0x8C1A
+
 #define WGL_DRAW_TO_WINDOW_ARB 0x2001
 #define WGL_ACCELERATION_ARB 0x2003
 #define WGL_SUPPORT_OPENGL_ARB 0x2010
@@ -110,6 +112,15 @@ typedef void(APIENTRY* PFN_BlitFramebuffer)(
 	GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield,
 	GLenum);
 
+// glTexImage3D
+typedef void(APIENTRY* PFN_TexImage3D)(
+	GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum,
+	const void*);
+// glTexSubImage3D
+typedef void(APIENTRY* PFN_TexSubImage3D)(
+	GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum,
+	GLenum, const void*);
+
 static PFN_CreateShader glCreateShader;
 static PFN_ShaderSource glShaderSource;
 static PFN_CompileShader glCompileShader;
@@ -141,6 +152,8 @@ static PFN_GenFramebuffers glGenFramebuffers;
 static PFN_BindFramebuffer glBindFramebuffer;
 static PFN_FramebufferTexture2D glFramebufferTexture2D;
 static PFN_BlitFramebuffer glBlitFramebuffer;
+static PFN_TexImage3D glTexImage3D;
+static PFN_TexSubImage3D glTexSubImage3D;
 
 typedef BOOL(WINAPI* PFN_wglChoosePixelFormatARB)(
 	HDC, const int*, const FLOAT*, UINT, int*, UINT*);
@@ -192,6 +205,8 @@ static bool load_gl() {
 	LOAD_GL(BindFramebuffer);
 	LOAD_GL(FramebufferTexture2D);
 	LOAD_GL(BlitFramebuffer);
+	LOAD_GL(TexImage3D);
+	LOAD_GL(TexSubImage3D);
 	return true;
 }
 
@@ -211,6 +226,7 @@ typedef struct {
 	GLuint tex[2];
 	// index of the front (readable) buffer
 	int cur;
+	bool isArray;
 } Img;
 
 typedef struct {
@@ -429,15 +445,19 @@ static void make_image_storage(Img* im) {
 	int n = im->dbl ? 2 : 1;
 	for (int k = 0; k < n; k++) {
 		if (!im->tex[k]) glGenTextures(1, &im->tex[k]);
-		glBindTexture(GL_TEXTURE_2D, im->tex[k]);
+		if (im->isArray) {
+			glBindTexture(GL_TEXTURE_2D_ARRAY, im->tex[k]);
+		} else {
+			glBindTexture(GL_TEXTURE_2D, im->tex[k]);
+		}
 		glTexImage2D(
 			GL_TEXTURE_2D,
 			0, GL_RGBA16F,
 			E.renderResolutionWidth, E.renderResolutionHeight,
 			0, GL_RGBA,
 			GL_FLOAT, 0);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	}
@@ -471,7 +491,11 @@ static void run_pass(Pass* p) {
 	for (int i = 0; i < p->readCount; i++) {
 		const Img& im = E.img[p->reads[i]];
 		glActiveTexture(GL_TEXTURE0 + i);
-		glBindTexture(GL_TEXTURE_2D, img_front(im));
+		if (im.isArray) {
+			glBindTexture(GL_TEXTURE_2D_ARRAY, img_front(im));
+		} else {
+			glBindTexture(GL_TEXTURE_2D, img_front(im));
+		}
 	}
 	if (p->write >= 0) {
 		glBindImageTexture(0, img_back(E.img[p->write]), 0, GL_FALSE, 0,
@@ -719,6 +743,7 @@ IntroImage intro_add_image(const IntroImageDesc* desc) {
 	im->dbl = desc->doubleBuffered;
 	im->externalSize = false;
 	im->tex[0] = im->tex[1] = 0;
+	im->isArray = false;
 	im->cur = 0;
 	make_image_storage(im);
 	clear_image(im);
@@ -765,17 +790,67 @@ IntroImage intro_load_texture_png(const char* path) {
 	im->externalSize = true;
 	im->cur = 0;
 	im->tex[0] = im->tex[1] = 0;
+	im->isArray = false;
 	glGenTextures(1, &im->tex[0]);
 	glBindTexture(GL_TEXTURE_2D, im->tex[0]);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	stbi_image_free(pixels);
 	LOG("loaded texture: %s (%dx%d)\n", path, w, h);
 	return E.imgCount++;
 }
+
+IntroImage intro_load_texture_array_png(const char* path, i32 layerCount) {
+	if (E.imgCount >= MAX_IMAGES) {
+		LOG("too many images\n");
+		return INTRO_NONE;
+	}
+
+	GLuint tex;
+	glGenTextures(1, &tex);
+	glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
+
+	int w = 0, h = 0;
+	for (i32 i = 0; i < layerCount; i++) {
+		char buf[512];
+		snprintf(buf, sizeof(buf), "%s_%d.png", path, i);
+		int lw, lh;
+		unsigned char* pixels = stbi_load(buf, &lw, &lh, NULL, 4);
+		if (!pixels) {
+			LOG("failed to load texture array layer: %s\n", buf);
+			glDeleteTextures(1, &tex);
+			return INTRO_NONE;
+		}
+		if (i == 0) {
+			w = lw; h = lh;
+			glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, w, h, layerCount, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		}
+		glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+		stbi_image_free(pixels);
+	}
+
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+	Img* im = &E.img[E.imgCount];
+	im->dbl = false;
+	im->externalSize = true;
+	im->cur = 0;
+	im->isArray = true;
+	im->tex[0] = tex;
+	im->tex[1] = 0;
+
+	LOG("loaded texture array: %s (%dx%dx%d)\n", path, w, h, layerCount);
+	return E.imgCount++;
+}
+
+
+
 #else
 IntroImage intro_load_texture_png(const char* path) {
 	(void)path;
@@ -892,6 +967,10 @@ void intro_run(void) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		}
+
+		// just sleep this thread a bit to avoid eating 100% cpu when vsync
+		// is on
+		if (E.vsync) Sleep(1);
 
 		// don't need to with internal fixed resolution
 		// if (E.resized) {
