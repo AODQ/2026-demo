@@ -14,6 +14,8 @@
 
 #ifndef INTRO_SIZE
 #include <sys/stat.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #define LOG(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define LOG(...) ((void)0)
@@ -30,6 +32,7 @@
 #define GL_WRITE_ONLY 0x88B9
 // read write
 #define GL_READ_WRITE 0x88BA
+#define GL_RGBA8   0x8058
 #define GL_RGBA16F 0x881A
 #define GL_CLAMP_TO_EDGE 0x812F
 #define GL_TEXTURE0 0x84C0
@@ -205,6 +208,7 @@ static bool load_gl() {
 
 typedef struct {
 	bool dbl;
+	bool externalSize; // if true, skip on resize / clear
 	GLuint tex[2];
 	// index of the front (readable) buffer
 	int cur;
@@ -420,6 +424,7 @@ static void dump_default(const Pass* p) {
 
 
 static void make_image_storage(Img* im) {
+	if (im->externalSize) return;
 	int n = im->dbl ? 2 : 1;
 	for (int k = 0; k < n; k++) {
 		if (!im->tex[k]) glGenTextures(1, &im->tex[k]);
@@ -440,6 +445,7 @@ static void make_image_storage(Img* im) {
 
 
 static void clear_image(const Img* im) {
+	if (im->externalSize) return;
 	glBindFramebuffer(GL_FRAMEBUFFER, E.fbo);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	int n = im->dbl ? 2 : 1;
@@ -709,6 +715,7 @@ IntroImage intro_add_image(const IntroImageDesc* desc) {
 	}
 	Img* im = &E.img[E.imgCount];
 	im->dbl = desc->doubleBuffered;
+	im->externalSize = false;
 	im->tex[0] = im->tex[1] = 0;
 	im->cur = 0;
 	make_image_storage(im);
@@ -737,6 +744,42 @@ void intro_buffer_upload(IntroBuffer buf, const void* data, size_t bytes) {
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, E.buf[buf].ssbo);
 	glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, (GLsizeiptr)bytes, data);
 }
+
+
+#ifndef INTRO_SIZE
+IntroImage intro_load_texture_png(const char* path) {
+	if (E.imgCount >= MAX_IMAGES) {
+		LOG("too many images\n");
+		return INTRO_NONE;
+	}
+	int w, h;
+	unsigned char* pixels = stbi_load(path, &w, &h, NULL, 4);
+	if (!pixels) {
+		LOG("failed to load texture: %s\n", path);
+		return INTRO_NONE;
+	}
+	Img* im = &E.img[E.imgCount];
+	im->dbl = false;
+	im->externalSize = true;
+	im->cur = 0;
+	im->tex[0] = im->tex[1] = 0;
+	glGenTextures(1, &im->tex[0]);
+	glBindTexture(GL_TEXTURE_2D, im->tex[0]);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	stbi_image_free(pixels);
+	LOG("loaded texture: %s (%dx%d)\n", path, w, h);
+	return E.imgCount++;
+}
+#else
+IntroImage intro_load_texture_png(const char* path) {
+	(void)path;
+	return INTRO_NONE;
+}
+#endif
 
 
 void intro_add_pass(const IntroPassDesc* desc) {
