@@ -46,21 +46,11 @@ void main() {
 	);
 
 	// -- primary ray
-#if 0
-	f32 wrapX = 0.13*TAU;
-	f32 wrapY = 0.69;
-	f32 wrapZ = 0.23;
-#else
-	f32 wrapX = uSlots[24]*TAU;
-	f32 wrapZ = uSlots[25]*2.0;
-	f32 fov = uSlots[16]*20.0f;
-	f32 wrapY = uSlots[20]*2.0;
-	f32 targetX = (uSlots[17]*2.0f - 1.0f)*2.0;
-	f32 targetY = (uSlots[18]*2.0f - 1.0f)*2.0;
-	f32 targetZ = (uSlots[19]*2.0f - 1.0f)*2.0;
-#endif
-	f32v3 cameraOri = f32v3(cos(wrapX), wrapY, sin(wrapX))*wrapZ*32.0;
-	Ray eye = fnLookAtRay(uv, cameraOri, f32v3(targetX,targetY,targetZ), fov);
+	vec3 cori;
+	vec3 ctgt;
+	float cfov;
+	fnCameraFromSlots(iFrame, cori, ctgt, cfov);
+	Ray eye = fnLookAtRay(uv, cori, ctgt, cfov);
 
 	// -- march into scene
 	f32v2 hit = fnSceneMarch(eye);

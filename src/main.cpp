@@ -87,7 +87,10 @@ i32 main(i32, char * *) {
 		.doubleBuffered = false,
 	};
 	IntroImageDesc const imgDescHistory {
-		.doubleBuffered = false,
+		.doubleBuffered = true,
+	};
+	IntroImageDesc const imgDescHistoryPos {
+		.doubleBuffered = true,
 	};
 	IntroImageDesc const imgDescPresent {
 		.doubleBuffered = false,
@@ -96,6 +99,7 @@ i32 main(i32, char * *) {
 	IntroImage const imgScene = intro_add_image(&imgDescPresent);
 	IntroImage const imgHistory = intro_add_image(&imgDescHistory);
 	IntroImage const imgPresent = intro_add_image(&imgDescPresent);
+	IntroImage const imgHistoryPos = intro_add_image(&imgDescHistoryPos);
 
 	IntroImage const imgBlueNoise = (
 		intro_load_texture_png("shaders/bluenoise.png")
@@ -152,7 +156,7 @@ i32 main(i32, char * *) {
 		.sched = IntroSchedule_Startup,
 		.dispatch = IntroDispatch_Explicit,
 		.gx = 1, .gy = 1, .gz = 1,
-		.write = INTRO_NONE,
+		.writeCount = 0,
 		.reads = { imgStbnScalar, imgStbnVec2 },
 		.readCount = 2,
 		.buffers = { bufPalette, bufMaterials, bufLights, },
@@ -164,7 +168,7 @@ i32 main(i32, char * *) {
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
 		.localX = 8, .localY = 8,
-		.write = INTRO_NONE,
+		.writeCount = 0,
 		.reads = { imgStbnScalar, imgStbnVec2 },
 		.readCount = 2,
 		.buffers = { bufGbuffer, bufLights, },
@@ -176,7 +180,7 @@ i32 main(i32, char * *) {
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
 		.localX = 8, .localY = 8,
-		.write = INTRO_NONE,
+		.writeCount = 0,
 		.reads = { imgStbnScalar, imgStbnVec2 },
 		.readCount = 2,
 		.buffers = { bufGbuffer, bufRadiance, bufMaterials, bufLights, },
@@ -187,18 +191,20 @@ i32 main(i32, char * *) {
 		.embedded = nullptr, // TODO embed
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
-		.write = imgHistory,
-		.reads = { imgStbnScalar, imgStbnVec2, imgHistory },
+		.write = { imgHistory, imgHistoryPos, },
+		.writeCount = 2,
+		.reads = { imgStbnScalar, imgStbnVec2, imgHistory, imgHistoryPos, },
 		.readCount = 3,
-		.buffers = { bufRadiance },
-		.bufferCount = 1,
+		.buffers = { bufRadiance, bufGbuffer, },
+		.bufferCount = 2,
 	};
 	IntroPassDesc const passDescPost {
 		.name = "post",
 		.embedded = nullptr, // TODO embed
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
-		.write = imgPresent,
+		.write = { imgPresent },
+		.writeCount = 1,
 		.reads = { imgStbnScalar, imgStbnVec2, imgHistory },
 		.readCount = 3,
 	};

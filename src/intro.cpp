@@ -244,7 +244,8 @@ typedef struct {
 	IntroDispatch dispatch;
 	int gx, gy, gz;
 	int lx, ly;
-	int write;
+	int write[INTRO_MAX_WRITES];
+	int writeCount;
 	int reads[INTRO_MAX_READS];
 	int readCount;
 	int buffers[INTRO_MAX_BUFFERS];
@@ -497,8 +498,9 @@ static void run_pass(Pass* p) {
 			glBindTexture(GL_TEXTURE_2D, img_front(im));
 		}
 	}
-	if (p->write >= 0) {
-		glBindImageTexture(0, img_back(E.img[p->write]), 0, GL_FALSE, 0,
+	for (int i = 0; i < p->writeCount; i++) {
+		const Img& im = E.img[p->write[i]];
+		glBindImageTexture(i, img_back(im), 0, GL_FALSE, 0,
 						   GL_READ_WRITE, GL_RGBA16F);
 	}
 
@@ -520,7 +522,11 @@ static void run_pass(Pass* p) {
 					GL_TEXTURE_FETCH_BARRIER_BIT |
 					GL_SHADER_STORAGE_BARRIER_BIT);
 
-	if (p->write >= 0 && E.img[p->write].dbl) E.img[p->write].cur ^= 1;
+	// if (p->write >= 0 && E.img[p->write].dbl) E.img[p->write].cur ^= 1;
+	for (int i = 0; i < p->writeCount; i++) {
+		const Img& im = E.img[p->write[i]];
+		if (im.dbl) E.img[p->write[i]].cur ^= 1;
+	}
 }
 
 
@@ -877,7 +883,8 @@ void intro_add_pass(const IntroPassDesc* desc) {
 	p->gz = desc->gz;
 	p->lx = desc->localX;
 	p->ly = desc->localY;
-	p->write = desc->write;
+	for (int i = 0; i < INTRO_MAX_WRITES; i++) p->write[i] = desc->write[i];
+	p->writeCount = desc->writeCount;
 	p->readCount = desc->readCount;
 	p->bufferCount = desc->bufferCount;
 	for (int i = 0; i < desc->readCount; i++) p->reads[i] = desc->reads[i];

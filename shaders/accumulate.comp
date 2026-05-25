@@ -1,45 +1,72 @@
 #line 2
 layout(std430, binding = 0) buffer Buffer_Radiance { vec4 radiance[]; };
+layout(std430, binding = 1) buffer Buffer_GBuffer { GBuffer gbuffer[]; };
 
 layout(binding = 0, rgba16f) uniform image2D imgHistory;
+layout(binding = 1, rgba16f) uniform image2D imgHistoryPos;
+
+layout(binding = 2) uniform sampler2D samplerHistory;
+layout(binding = 3) uniform sampler2D samplerHistoryPos;
 
 FnSceneMapStub;
 
 void main() {
-	const ivec2 px = ivec2(gl_GlobalInvocationID.xy);
-	const int linearIdx = px.y * skResolution.x + px.x;
-	vec4 col = radiance[linearIdx];
-	vec4 hist = imageLoad(imgHistory, px);
+	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+	int idx = px.y * skResolution.x + px.x;
+	vec4 col = radiance[idx];
+	vec3 P = gbuffer[idx].ori;
+	bool hasSurface = gbuffer[idx].materialId >= 0.0;
 
-	bool converge = col.a > 0.0f;
-
-	// reset history
-	if (iFrame == 0) {
-		hist = vec4(0.0f);
+	if (iFrame == 0 || !hasSurface) {
+		imageStore(imgHistory, px, col);
+		imageStore(imgHistoryPos, px, vec4(P, 1.0));
+		return;
 	}
 
-	if (iFrame != 0) {
-		// we want to sticky alphas < 1.0f for debugging.
-		if (col.a < 0.0f || hist.a < 0.0f) {
-			const f32v3 randCol = (
-				iFrame%20 < 5 ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f)
-			);
-			imageStore(imgHistory, px, vec4(randCol*1000.0f, -99.0f));
-			return;
-		}
+	vec3 camOriPrev, camTgtPrev; float fovPrev;
+	fnCameraFromSlots(iFrame-1, camOriPrev, camTgtPrev, fovPrev);
+	vec3 camOriCur, camTgtCur; float fovCur;
+	fnCameraFromSlots(iFrame, camOriCur, camTgtCur, fovCur);
+
+	float aspect = float(skResolution.x) / float(skResolution.y);
+	vec2 uvPrev;
+	bool onScreen = fnWorldToScreen(P, camOriPrev, camTgtPrev, fovPrev, uvPrev);
+	vec2 ndc = vec2(uvPrev.x / aspect, uvPrev.y);
+	vec2 pxF = (ndc*0.5 + 0.5) * vec2(skResolution) - 0.5;
+
+	bool valid = false;
+	vec4 hist = vec4(0.0);
+		vec2 uvS = (pxF + 0.5) / vec2(skResolution);
+		vec3 prevPos = texture(samplerHistoryPos, uvS).rgb;
+		float footprint = uSlots[30] * distance(P, camOriCur);   // disocclusion threshold knob
+	if (onScreen && all(greaterThanEqual(pxF, vec2(0))) && all(lessThan(pxF, vec2(skResolution)))) {
+		hist = texture(samplerHistory, uvS);
+		// vec3 prevPos = texture(samplerHistoryPos, uvS).rgb;
+		// float footprint = uSlots[30] * distance(P, camOriCur);   // disocclusion threshold knob
+		valid = distance(P, prevPos) < max(footprint, 1e-3);
 	}
 
-	if (converge) {
-		// converge with history using a running average
-		float alpha = col.a / (hist.a + col.a);
-		if (skConverge == 0) {
-			alpha = 0.95f;
-		}
-		const vec3 accum = mix(hist.rgb, col.rgb, alpha);
-
-		// store accumulation
-		imageStore(imgHistory, px, vec4(accum, hist.a + col.a));
+	vec3 outRgb; float outCount;
+	if (valid) {
+		float histCount = min(hist.a, 32.0);              // EMA window length
+		float alpha = col.a / (histCount + col.a);
+		outRgb = mix(hist.rgb, col.rgb, alpha);
+		outCount = histCount + col.a;
 	} else {
-		imageStore(imgHistory, px, hist);
+		outRgb = col.rgb; outCount = col.a;               // reset on disocclusion
 	}
+
+	imageStore(imgHistory, px, vec4(vec3(prevPos), 1.0f));
+	imageStore(imgHistoryPos, px, vec4(P, 1.0));
+
+	// if (iFrame != 0) {
+	// 	// we want to sticky alphas < 1.0f for debugging.
+	// 	if (col.a < 0.0f || hist.a < 0.0f) {
+	// 		const f32v3 randCol = (
+	// 			iFrame%20 < 5 ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f)
+	// 		);
+	// 		imageStore(imgHistory, px, vec4(randCol*1000.0f, -99.0f));
+	// 		return;
+	// 	}
+	// }
 }

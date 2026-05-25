@@ -8,3 +8,4 @@ compile_commands*
 intro.exe
 *lua
 *.cmake
+*.png

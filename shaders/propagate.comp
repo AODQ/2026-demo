@@ -481,10 +481,10 @@ void main() {
 	const GBuffer gbuf = data[linearIdx];
 
 	// check if radiance has high alpha count, in which case can quit
-	if (skConverge > 0 && iFrame > 100.0f) {
-		outRadiance[linearIdx] = vec4(0.0f);
-		return;
-	}
+	// if (skConverge > 0 && iFrame > 100.0f) {
+	// 	outRadiance[linearIdx] = vec4(0.0f);
+	// 	return;
+	// }
 
 	// -- extract origin and normal
 	f32v3 itOri = gbuf.ori;

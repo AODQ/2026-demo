@@ -28,6 +28,7 @@ struct vec4 { f32 x, y, z, w; };
 
 #define INTRO_NONE (-1)
 #define INTRO_MAX_READS 8
+#define INTRO_MAX_WRITES 8
 #define INTRO_MAX_BUFFERS 8
 
 #define INTRO_SLOTS 64
@@ -93,7 +94,8 @@ typedef struct {
 	i32 localX;
 	i32 localY;
 	// output image, or INTRO_NONE
-	IntroImage write;
+	IntroImage write[INTRO_MAX_WRITES];
+	i32 writeCount;
 	// bound to sampler units 0..n-1
 	IntroImage reads[INTRO_MAX_READS];
 	i32 readCount;
