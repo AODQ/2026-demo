@@ -6,6 +6,10 @@ layout(binding = 3) uniform sampler2D samplerBloom;
 
 FnSceneMapStub;
 
+#define UseVignette 1
+#define UseBloom 1
+#define UseTonemap 1
+
 // -----------------------------------------------------------------------------
 // -- DEBUG STRIP ME OUT
 // -----------------------------------------------------------------------------
@@ -57,7 +61,9 @@ float PrintValue( vec2 vStringCoords, float fValue, float fMaxDigits, float fDec
 	return floor(mod((fCharBin / pow(2.0, floor(fract(vStringCoords.x) * 4.0) + (floor(vStringCoords.y * 5.0) * 4.0))), 2.0));
 }
 
-float PrintFloat(ivec2 px, vec2 gridPos, float value, float decimals = 2.0f) {
+float PrintFloat(
+	inout float bg, ivec2 px, vec2 gridPos, float value, float decimals = 2.0f
+) {
 	vec2 fontSize = vec2(8.0, 12.0);
 	vec2 fontOffset = vec2(fontSize.x*5.0f, fontSize.y*1.5f);
 
@@ -67,9 +73,18 @@ float PrintFloat(ivec2 px, vec2 gridPos, float value, float decimals = 2.0f) {
 	// offset px by gridOffset which is in units of characters
 	px -= ivec2(gridPos * ivec2(fontOffset));
 
+
 	// bring the first digit into normalized space
 	// currently in (0, 0) -> (skResolutionX, skResolutionY) space
 	vec2 normalized = (vec2(px) - fontOffset) / fontSize;
+
+	// add a bg to the text
+	bg += (
+		(normalized.y < 0.0f || normalized.y >= 1.0f)
+		|| (normalized.x < 0.0f || normalized.x*0.1f >= 1.0f)
+
+	) ? 0.0f : 0.2f;
+
 	return PrintValue(normalized, value, 3.0, decimals);
 }
 
@@ -82,58 +97,19 @@ void main() {
 	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
 	vec4 hist = texture(samplerHistory, vec2(px) / vec2(skResolution));
 
-	// print knobs [[DEBUG STRIP ME OUT]]
-	{
-		float knob = 0.0f;
-		knob += PrintFloat(px, vec2(1, 1), uKnobR);
-		knob += PrintFloat(px, vec2(12.5, 0), iTime);
-		knob += PrintFloat(px, vec2(12.5, 1), iFrame);
-		knob += PrintFloat(px, vec2(12.5, 2), iMillis);
-
-		// print each slot
-		int activeSlots = 0;
-		for (int i = 0; i < 64; ++i) {
-			if (uSlots[i] < 0.001f) {
-				continue;
-			}
-
-			knob += (
-				PrintFloat(
-					px,
-					vec2(-1.0, 2) + vec2(0.0f, float(activeSlots)),
-					float(i),
-					0.0f
-				)
-			);
-
-			knob += (
-				PrintFloat(
-					px,
-					vec2(-0.5, 2) + vec2(0.0f, float(activeSlots)),
-					uSlots[i]
-				)
-			);
-
-			++activeSlots;
-		}
-
-		// invert color
-		if (knob > 0.0f) {
-			hist = vec4(1.0f) - hist;
-			hist += vec4(0.2f);
-		}
-	}
-
 	f32v2 uv = (f32v2(px) + 0.5f) / vec2(skResolution);
 
-	// -- brightness
-	hist.rgb *= pow(2.0f, (uKnobR * 2.0f - 1.0f)*5.0f);
-
+#if UseBloom
 	// -- bloom
 	{
 		f32v3 col = texture(samplerBloom, uv).rgb;
-		hist.rgb += col*0.24f;
+		hist.rgb += col*0.08f;
 	}
+#endif
+
+#if UseTonemap
+	// -- brightness
+	hist.rgb *= pow(2.0f, (uKnobR * 2.0f - 1.0f)*5.0f);
 
 	// -- tonemap
 	{
@@ -148,15 +124,67 @@ void main() {
 		);
 		hist.rgb = pow(hist.rgb, vec3(1.0f/2.2f));
 	}
+#endif
 
 
+#if UseVignette
 	// -- vignette to hide temporal artifacts
 	{
 		f32v2 uvNor = uv*2.0f - 1.0f;
 		f32v2 vig2 = smoothstep(f32v2(1.0f), f32v2(0.1f), abs(uvNor));
 		f32 vignette = vig2.x * vig2.y;
-		vignette = pow(vignette, 0.4f);
+		vignette = pow(vignette, 0.25f);
 		hist.rgb *= vignette;
+	}
+#endif
+
+	// print knobs [[DEBUG STRIP ME OUT]]
+	{
+		float knob = 0.0f;
+		float bg = 0.0f;
+		knob += PrintFloat(bg, px, vec2(1, 1), uKnobR);
+		knob += PrintFloat(bg, px, vec2(12.5, 0), iTime);
+		knob += PrintFloat(bg, px, vec2(12.5, 1), iFrame);
+		knob += PrintFloat(bg, px, vec2(12.5, 2), iMillis);
+
+		// print each slot
+		int activeSlots = 0;
+		for (int i = 0; i < 64; ++i) {
+			if (uSlots[i] < 0.001f) {
+				continue;
+			}
+
+			knob += (
+				PrintFloat(
+					bg,
+					px,
+					vec2(-1.0, 2) + vec2(0.0f, float(activeSlots)),
+					float(i),
+					0.0f
+				)
+			);
+
+			knob += (
+				PrintFloat(
+					bg,
+					px,
+					vec2(-0.5, 2) + vec2(0.0f, float(activeSlots)),
+					uSlots[i]
+				)
+			);
+
+			++activeSlots;
+		}
+
+		// background
+		if (bg > 0.0f) {
+			hist = vec4(1.0f);
+		}
+
+		// invert color
+		if (knob > 0.0f) {
+			hist = vec4(0.2f);
+		}
 	}
 
 	imageStore(imgOut, px, vec4(hist.rgb, 1.0f));

@@ -11,34 +11,54 @@ void main() {
 	palette[i] = vec4(float(i) / 255.0, float(i) / 255.0, float(i) / 255.0, 1.0);
 	palette[i] = pow(palette[i], vec4(2.2));
 
-	// -- light
+	// -------------------------------------------------------------------------
+	// -- lights : a small 4-emitter rig. key + cool fill + two colored kickers.
+	//    convention (matches the original): nor points from scene center toward
+	//    the light, so fnValidEmitter's dot(nor, wo) > 0 holds for the scene.
+	//    emitters live well out of the camera framing; bump emission or use the
+	//    brightness knob (uKnobR in post.comp) to taste.
+	// -------------------------------------------------------------------------
+	// delay attack to shutter light brightnes
+	float T = iFrame * 0.01f;
+#if !skAnimate
+	T = smoothstep(0.0, 1.0, T*4.0)*0.1;
+#endif
+	float shutter = (0.0f + exp(-fract(T * 0.5) * 24.0) * 1000.0);
 	if (i == 0u) {
-		light[0].ori = f32v3(8.0);
-		light[0].nor = normalize(NOR3(f32v3(0.54, 0.54, 0.58)));
-		light[0].halfExtent = f32v2(1.0, 0.82)*2.0f;
-		light[0].emission = vec3(1.0, 1.0, 1.0) * 1000.0 * 0.01;
+		const f32v3 center = f32v3(0.0, 2.0, 0.0);
 
-		light[1].ori = NOR3(f32v3(0.0, 0.0, -0.00))*32.0;
-		light[1].nor = normalize(NOR3(f32v3(-0.54, 0.54, 0.58)));
-		light[1].halfExtent = f32v2(1.0, 0.82)*2.0f;
-		light[1].emission = vec3(1.0, 0.0, 0.0) * 1000.0 * 0.01;
+		// key -- warm, big, bright, high and to the right
+		light[0].ori        = f32v3(sin(T), 4.0, cos(T))*4.0;
+		light[0].nor        = normalize(light[0].ori - center);
+		light[0].halfExtent = f32v2(3.0, 3.0);
+		light[0].emission   = vec3(1.00, 0.86, 0.66) * 60.0 * shutter;
 
-		light[2].ori = NOR3(f32v3(-0.54, -0.54, 0.54))*32.0;
-		light[2].nor = -normalize(NOR3(f32v3(0.54, 0.54, 0.58)));
-		light[2].halfExtent = f32v2(1.0, 0.82)*2.0f;
-		light[2].emission = vec3(0.0, 1.0, 0.0) * 1000.0 * 0.01;
+		// fill -- cool blue, opposite side, dimmer and softer
+		light[1].ori        = f32v3(sin(T*4.0), 1.0, cos(T*4.0))*8.0;
+		light[1].nor        = normalize(light[1].ori - center);
+		light[1].halfExtent = f32v2(2.5, 2.5);
+		light[1].emission   = vec3(0.35, 0.55, 1.00) * 26.0 * shutter;
 
-		light[3].ori = -NOR3(f32v3(0.54, 0.54, 0.54))*32.0;
-		light[3].nor = normalize(NOR3(f32v3(0.54, 0.54, 0.58)));
-		light[3].halfExtent = f32v2(1.0, 0.82)*2.0f;
-		light[3].emission = vec3(1.0, 0.0, 1.0) * 1000.0 * 0.01;
+		// rim -- magenta accent from behind
+		light[2].ori        = f32v3(sin(T*2.0), 1.0, cos(T*2.0))*4.0;
+		light[2].nor        = normalize(light[2].ori - center);
+		light[2].halfExtent = f32v2(1.6, 1.6);
+		light[2].emission   = vec3(1.00, 0.20, 0.85) * 45.0 * shutter;
+
+		// kicker -- low teal bounce
+		light[3].ori        = f32v3(sin(T*8.0), 1.0, cos(T*8.0))*4.0;
+		light[3].nor        = normalize(light[3].ori - center);
+		light[3].halfExtent = f32v2(1.6, 1.2);
+		light[3].emission   = vec3(0.10, 0.90, 0.72) * 34.0 * shutter;
 	}
 
+	// terminator: marks one past the last in-scene emitter (skLightsInScene == 4)
 	light[skLightsInScene].emission = vec3(-1000000.0f);
 
-	// -- material
+	// -------------------------------------------------------------------------
+	// -- materials
+	// -------------------------------------------------------------------------
 
-	// common material
 	#define MTRL_WOOD(i) \
 		material[i].albedo = vec3(0.67, 0.65, 0.49) * albedoMult; \
 		material[i].alpha = 0.99*0.99; \
@@ -74,24 +94,34 @@ void main() {
 		material[i].transmittive = 0.0; \
 		material[i].fresnel = 0.63*0.63;
 
+	// glass: smooth, no diffuse, transmittive is the eta fed to refract()
+	// (~1/1.51). low scalar F0. albedo left unmultiplied (transmission F is
+	// already IPI*albedo in fnBsdfF).
+	#define MTRL_GLASS(i) \
+		material[i].albedo = vec3(0.90, 0.95, 1.0); \
+		material[i].alpha = 0.02*0.02; \
+		material[i].diffuse = 0.0; \
+		material[i].transmittive = 0.66; \
+		material[i].fresnel = 0.04;
+
 	#define albedoMult IPI
 	// -- material setup, just one thread
 	if (i == 0u) {
-		material[0].albedo = vec3(0.11f, 0.55f, 0.21f) * albedoMult;
-		material[0].alpha = 0.2;
-		material[0].diffuse = 0.01;
+		// 0: floor. albedo/alpha/diffuse are overridden per-pixel by the
+		//    checker in propagate.comp; only fresnel/transmittive persist.
+		material[0].albedo       = vec3(0.8) * albedoMult;
+		material[0].alpha        = 0.4;
+		material[0].diffuse      = 0.9;
 		material[0].transmittive = 0.0;
-		material[0].fresnel = 0.3;
+		material[0].fresnel      = 0.04;
 
-
-		MTRL_PNKMTL(1);
-		MTRL_WOOD(2);
-		MTRL_WOOD(3);
-		MTRL_FIRE(4);
-
-		MTRL_GOLD(5);
-		MTRL_GRAYMETAL(6);
-		MTRL_FIRE(7);
+		MTRL_PNKMTL(1);     // ring spheres (odd copies)
+		MTRL_WOOD(2);       // hero pedestal
+		MTRL_WOOD(3);       // pillars
+		MTRL_FIRE(4);       // spare accent / unused by default
+		MTRL_GOLD(5);       // hero mass
+		MTRL_GRAYMETAL(6);  // tumbling ring + ring spheres (even copies)
+		MTRL_GLASS(7);      // floating glass sphere
 	}
 
 	#define TUNE_MATERIAL 0

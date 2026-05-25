@@ -313,55 +313,56 @@ int fnIrradiance(
 
 	// -- march towards surface to prepare for next hit, but also
 	//    check if the hit surface is a radiance source
-	rayWo = Ray(itOri + itNor*0.1f, bsdfWo);
-	hitWo = (
-		fnSceneMarch(
-			rayWo,
-			/*maxIterations=*/64,
-			/*maxDistance=*/16.0f,
-			/*threshold=*/0.01f
-		)
-	);
-
 	int lightIndex = skLightIndexNone;
-
-	// -- indirect irradiance (bsdf path)
+	// only half for compare
+#if skPropagationTerminateLastBsdf == 1
+	if (iteration < skPropagationIterations-1)
+#endif
 	{
-		// fetch the light index if it hit a light
-		int bsdfLightIndex = LIGHT_IDX(hitWo.y);
+		rayWo = Ray(itOri + itNor*0.1f, bsdfWo);
+		hitWo = (
+			fnSceneMarch(rayWo, skSceneMarchLq)
+		);
 
-		// hit sky. that's okay, just specialize it for sky
-		if (hitWo.x < 0.0f) {
-			bsdfLightIndex = skLightIndexSky;
-		}
 
-		// apply bsdf contribution to emitter when hitting a light
-		if (fnValidEmitter(bsdfLightIndex, bsdfWo)) {
-			lightIndex = bsdfLightIndex;
-			const f32 emitterDist = hitWo.x;
+		// -- indirect irradiance (bsdf path)
+		{
+			// fetch the light index if it hit a light
+			int bsdfLightIndex = LIGHT_IDX(hitWo.y);
 
-			// use NEE sampling strategy for PDF so that it can be combined
-			// with direct irradiance
-			const f32 emitPdf = (
-				  fnEmitPdf(lightIndex, bsdfWo, emitterDist)
-				/ skLightsInSceneInclSky
-			);
+			// hit sky. that's okay, just specialize it for sky
+			if (hitWo.x < 0.0f) {
+				bsdfLightIndex = skLightIndexSky;
+			}
 
-			// balance heuristic weight for BSDF strategy
-			const f32 misWeightDenom = bsdfPdf + emitPdf;
-			const f32 misWeight = (
-				misWeightDenom > 0.0f ? bsdfPdf / misWeightDenom : 0.0f
-			);
+			// apply bsdf contribution to emitter when hitting a light
+			if (fnValidEmitter(bsdfLightIndex, bsdfWo)) {
+				lightIndex = bsdfLightIndex;
+				const f32 emitterDist = hitWo.x;
 
-			// throughput contains the bounce's bsdfF.
-			// arriving light is just emission, throughput and MIS weight.
-			const f32v3 radiance = (
-				  fnEmitterF(lightIndex, bsdfWo)
-				* irradianceThroughput
-				* misWeight
-			);
-			irradianceAccumulator += radiance;
-			returnEnum = skHitIndirect;
+				// use NEE sampling strategy for PDF so that it can be combined
+				// with direct irradiance
+				const f32 emitPdf = (
+					  fnEmitPdf(lightIndex, bsdfWo, emitterDist)
+					/ skLightsInSceneInclSky
+				);
+
+				// balance heuristic weight for BSDF strategy
+				const f32 misWeightDenom = bsdfPdf + emitPdf;
+				const f32 misWeight = (
+					misWeightDenom > 0.0f ? bsdfPdf / misWeightDenom : 0.0f
+				);
+
+				// throughput contains the bounce's bsdfF.
+				// arriving light is just emission, throughput and MIS weight.
+				const f32v3 radiance = (
+					  fnEmitterF(lightIndex, bsdfWo)
+					* irradianceThroughput
+					* misWeight
+				);
+				irradianceAccumulator += radiance;
+				returnEnum = skHitIndirect;
+			}
 		}
 	}
 
@@ -385,9 +386,7 @@ int fnIrradiance(
 			lightMarch = (
 				fnSceneMarch(
 					Ray(itOri + itNor*0.01f, emitterWo),
-					/*maxIterations=*/32,
-					/*maxDistance=*/64.0f,
-					/*threshold=*/0.001f
+					skSceneMarchLq
 				)
 			);
 		}
@@ -480,10 +479,12 @@ int fnPropagate(
 	}
 
 	// -- update iters
-	itOri = rayWo.ori + rayWo.dir * hitWo.x + 0.01f*rayWo.dir;
-	itNor = fnSceneNormal(itOri);
-	itWi = rayWo.dir;
-	itMaterialId = int(hitWo.y+0.5f);
+	if (iteration < skPropagationIterations-1) {
+		itOri = rayWo.ori + rayWo.dir * hitWo.x + 0.01f*rayWo.dir;
+		itNor = fnSceneNormal(itOri);
+		itWi = rayWo.dir;
+		itMaterialId = int(hitWo.y+0.5f);
+	}
 
 	return returnEnum;
 }

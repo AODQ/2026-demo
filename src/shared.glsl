@@ -9,12 +9,16 @@
 
 
 // -- prototyping
-#define skResolutionX 640
-#define skResolutionY 360
+// #define skResolutionX 640
+// #define skResolutionY 360
 
 // -- shipping
 // #define skResolutionX 1280
 // #define skResolutionY 720
+
+// -- reference
+#define skResolutionX 1920
+#define skResolutionY 1080
 
 // -----------------------------------------------------------------------------
 // -- shared data structures
@@ -43,14 +47,14 @@ struct Material {
 
 #define skLightsMax 128
 // TODO v this needs to be written directly into a storage buffer by init!
-#define skLightsInScene 1
+#define skLightsInScene 8
 
 // for miss, hit sky. this is always just the number of lights + 1
 #define skLightIndexSky (skLightsInSceneInclSky-1)
 #define skLightIndexNone (-1)
 #define LIGHT_IDX(fl) int(fl - 100.0)
 
-#define skLightSkyEmission (vec3(0.88, 0.86, 0.63) * 1.05)
+#define skLightSkyEmission (vec3(0.88, 0.86, 0.63) * 0.0001)
 
 // sky is a special light
 #define skLightsInSceneInclSky (skLightsInScene+1)
@@ -72,6 +76,8 @@ layout(binding = 0) uniform sampler2DArray samplerStbnScalar;
 layout(binding = 1) uniform sampler2DArray samplerStbnVec2;
 uniform float uKnobR;
 uniform int iFrame;
+uniform float iTime;
+uniform float iMillis;
 uniform float uSlots[64];
 
 // -----------------------------------------------------------------------------
@@ -79,9 +85,16 @@ uniform float uSlots[64];
 // -----------------------------------------------------------------------------
 
 #define skPropagationIterations 2
-#define skSamplesPerPixel 1
+#define skSamplesPerPixel 2
 #define skConverge 1
-#define skAnimate 0
+#define skAnimate 1
+
+// this will terminate last BSDF so last bounce is only NEE
+#define skPropagationTerminateLastBsdf 1
+
+// number of samples to keep in temporal history
+// not used when in non-animate mode
+#define skHistoryLength 16.0f
 
 #define skResolution ivec2(skResolutionX, skResolutionY)
 
@@ -138,24 +151,13 @@ bool fnWorldToScreen(f32v3 P, f32v3 ori, f32v3 target, float fov, out vec2 outUv
 }
 
 void fnCameraFromSlots(int frame, out vec3 ori, out vec3 tgt, out float fov) {
-#if !skAnimate
-	frame = 0;
-	float wrapX = float(uSlots[0])*TAU;
-	float wrapY = float(uSlots[1]);
-	float wrapZ = float(uSlots[2]);
-	tgt.x = -0.7;
-	tgt.y = 0.4;
-	tgt.z = -0.2;
-#else
-	float wrapX = float(frame*0.02);
-	float wrapY = 0.8f;
-	float wrapZ = 3.0;
-	tgt = (
-		vec3(-2.0, 0.0f, 0.0f)
-	);
-#endif
-	ori = vec3(cos(wrapX), wrapY, sin(wrapX)) * wrapZ * 3.0;
-	fov = 2.0f;
+	f32 t = (skAnimate != 0) ? float(frame) * 0.0125 : 1.65;
+
+	f32 r = 14.5;
+	ori = f32v3(cos(t) * r, 4.5 + 1.2*sin(t*0.5), sin(t) * r);
+	tgt = f32v3(0.0, 1.8, 0.0);
+
+	fov = 2.05;
 }
 
 // -----------------------------------------------------------------------------
@@ -379,18 +381,17 @@ float fnSampleSeed(ivec2 px, int iteration=0) {
 #endif
 }
 
-f32v2 fnSampleSeed2(ivec2 px, int iteration=0, int frame=-1) {
+f32v2 fnSampleSeed2(ivec2 px, int iteration=0) {
 #if skRandom == skRandomSine
 	return vec2(fnSampleSeed(px, iteration)) + (
 		vec2(1.0, 1.3)*float(iteration)*0.61803398875
 	);
 #else
 	ivec3 size = textureSize(samplerStbnVec2, 0);
-	if (frame == -1) { frame = iFrame; }
 	const ivec3 c = (
 		ivec3(
 			px % size.xy,
-			(frame * skSamplesPerPixel + iteration + 16) % size.z
+			(iFrame * skSamplesPerPixel + iteration + 16) % size.z
 		)
 	);
 	return texelFetch(samplerStbnVec2, c, 0).rg;
@@ -485,14 +486,13 @@ f32v2 Normal_Sampler ( in sampler2D s, in f32v2 uv ) {
 
 f32v2 fnSceneMap(f32v3 o);
 
-#define skSceneMarchIterations 128
-#define skSceneMarchMaxDist 128.0f
-#define skSceneMarchThreshold 0.0001f
+#define skSceneMarchHq 128, 128.0f, 0.0001f
+#define skSceneMarchLq 16, 128.0f, 0.01f
 f32v2 fnSceneMarch(
 	Ray ray,
-	const int maxIterations = skSceneMarchIterations,
-	const float maxDist = skSceneMarchMaxDist,
-	const float threshold = skSceneMarchThreshold
+	int maxIterations,
+	float maxDist,
+	float threshold
 ) {
 	f32 dist = 0.0;
 	f32v2 cur;
@@ -510,6 +510,8 @@ f32v2 fnSceneMarch(
 f32v3 fnSceneNormal(
 	f32v3 p
 ) {
+	// 4 tap tetrahedron
+#if 1
 	f32v2 e = f32v2(1.0, -1.0)*0.001;
 	return normalize(
 		e.xyy*fnSceneMap(p + e.xyy).x +
@@ -517,124 +519,284 @@ f32v3 fnSceneNormal(
 		e.yyx*fnSceneMap(p + e.yyx).x +
 		e.xxx*fnSceneMap(p + e.xxx).x
 	);
+#else
+	// 3 tap forward difference
+	f32v2 e = f32v2(0.001, 0.0);
+	return normalize(
+		f32v3(
+			fnSceneMap(p + e.xyy).x - fnSceneMap(p - e.xyy).x,
+			fnSceneMap(p + e.yxy).x - fnSceneMap(p - e.yxy).x,
+			fnSceneMap(p + e.yyx).x - fnSceneMap(p - e.yyx).x
+		)
+	);
+#endif
 }
 
 // -----------------------------------------------------------------------------
 // -- SDF scene
 // -----------------------------------------------------------------------------
 
-uniform float iTime;
-uniform float iMillis;
-
 f32v2 fnSceneMapLights(f32v3 o);
 
 #define FnSceneMapStub \
 	f32v2 fnSceneMapLights(f32v3 o) { return f32v2(0.0f); }
 
-// for now just a sphere
-f32v2 fnSceneMap(f32v3 o) {
-	f32v2 t = f32v2(1e9, -1.0);
-	float T = iTime;
-// #if !skAnimate
-	T = 0.0; // disable animation for convergence mode
-// #endif
-	o.x += 2.0f;
+// -- demoscene SDF toolbox ----------------------------------------------------
+f32 dmSphere(f32v3 p, f32 r) { return length(p) - r; }
 
-	// ground plane
-	Union(t, sdPlane(o, f32v3(0,1,0), 0.0), 0.0);
-
-	// put a box at origin just to mark origin
-	Union(t, sdBox(o - f32v3(0.0,0.0,0), f32v3(0.1,4.5,0.1)), 1.0);
-
-	// -- castle tower
-	f32v3 co = o;
-	float castleSpacing = 2.0;
-	co.x = mod(co.x + castleSpacing*0.5, castleSpacing) - castleSpacing*0.5;
-	co.z = mod(co.z + castleSpacing*0.5, castleSpacing) - castleSpacing*0.5;
-	Union(t, sdCylinder(co, 0.4, 0.8), 1.0);
-	Union(t, sdBox(co - f32v3(0,0.9,0), f32v3(0.42,0.1,0.42)), 1.0);
-	for (int i = 0; i < 4; i++) {
-		float a = float(i) * PI * 0.5;
-		Union(t, sdBox(co - f32v3(cos(a)*0.32, 1.1, sin(a)*0.32), f32v3(0.08,0.1,0.08)), 1.0);
-	}
-
-	// door
-	float door = sdBox(co - f32v3(0.0, 0.25, -0.38), f32v3(0.12,0.25,0.05));
-	t.x = opSmoothSubtraction(door, t.x, 0.02);
-
-	// -- orbiting moon rock around tower
-	float moonA = T * 1.3;
-	f32v3 moonP = o - f32v3(cos(moonA)*1.1, 0.6 + sin(T*0.7)*0.15, sin(moonA)*1.1);
-	Union(t, sdRoundBox(moonP, f32v3(0.09,0.07,0.08), 0.03), 1.0);
-
-	// -- chest, bobbing open
-	float lidAngle = 0.3 + 0.28*sin(T*1.1);
-	f32v3 chestBase = f32v3(0.7, 0.1, 0.3);
-	Union(t, sdRoundBox(o - chestBase, f32v3(0.18,0.1,0.12), 0.02), 2.0);
-	// rotate lid around its back edge
-	f32v3 lidP = o - (chestBase + f32v3(0.0, 0.12, -0.1));
-	opRotate(lidP.yz, -lidAngle);
-	lidP += f32v3(0.0, 0.0, -0.02);
-	Union(t, sdRoundBox(lidP, f32v3(0.18,0.025,0.13), 0.02), 2.0);
-	// gold coins spilling out when lid open
-	for (int i = 0; i < 5; i++) {
-		float fi = float(i);
-		float coinT = T*0.9 + fi*1.2;
-		float spill = smoothstep(0.0, 1.0, (sin(T*1.1)*0.5+0.5)); // tied to lid open
-		f32v3 coinP = o - (chestBase + f32v3(
-			sin(fi*2.3)*0.15*spill,
-			0.22 + fi*0.04*spill,
-			cos(fi*1.7)*0.08*spill
-		));
-		Union(t, sdCylinder(coinP, 0.04, 0.01), 5.0);
-	}
-
-	// -- campfire
-	f32v3 fp = f32v3(-0.7, 0.0, 0.2);
-	Union(t, sdCapsule(o-fp, f32v3(-0.12,0.04,0.0), f32v3(0.12,0.04,0.0), 0.04), 3.0);
-	Union(t, sdCapsule(o-fp, f32v3(0.0,0.04,-0.12), f32v3(0.0,0.04,0.12), 0.04), 3.0);
-	// fire flicker — emissive
-	float flicker = 0.06 + 0.02*sin(T*13.7) + 0.015*sin(T*7.3 + 1.0);
-	Union(t, sdSphere(o - (fp + f32v3(0.0, 0.1 + flicker, 0.0)), flicker + 0.05), 4.0);
-
-	// -- floating magic runes orbiting the fire (thin torus-like rings via shell)
-	for (int i = 0; i < 3; i++) {
-		float fi = float(i);
-		float ra = T*0.8 + fi*TAU/3.0;
-		float ry = sin(T*0.5 + fi*1.1) * 0.15;
-		f32v3 rp = o - (fp + f32v3(cos(ra)*0.25, 0.15 + ry, sin(ra)*0.25));
-		opRotate(rp.xz, ra);
-		opRotate(rp.xy, T*1.5 + fi);
-		Union(t, sdShell(sdBox(rp, f32v3(0.06, 0.001, 0.06)), 0.008), 6.0);
-	}
-
-	// -- knight pacing back and forth
-	float pace = sin(T*0.8);
-	f32v3 kOri = f32v3(1.3 + pace*0.4, 0.0, -0.3);
-	// body
-	Union(t, sdCylinder(o - (kOri + f32v3(0,0.35,0)), 0.1, 0.2), 1.0);
-	// head
-	Union(t, sdSphere(o - (kOri + f32v3(0,0.65,0)), 0.1), 1.0);
-	// visor slit subtraction
-	float visor = sdBox(o - (kOri + f32v3(0,0.66,-0.08)), f32v3(0.07,0.015,0.04));
-	t.x = opSmoothSubtraction(visor, t.x, 0.005);
-	// arms swinging
-	float swing = sin(T*1.6)*0.18;
-	Union(t, sdCapsule(o-kOri, f32v3(-0.13,0.5,0.0), f32v3(-0.18,0.28, swing), 0.045), 1.0);
-	Union(t, sdCapsule(o-kOri, f32v3( 0.13,0.5,0.0), f32v3( 0.18,0.28,-swing), 0.045), 1.0);
-	// legs
-	float lstep = sin(T*1.6)*0.12;
-	Union(t, sdCapsule(o-kOri, f32v3(-0.06,0.15,0.0), f32v3(-0.07,-0.1, lstep), 0.05), 1.0);
-	Union(t, sdCapsule(o-kOri, f32v3( 0.06,0.15,0.0), f32v3( 0.07,-0.1,-lstep), 0.05), 1.0);
-	// sword
-	f32v3 swordBase = kOri + f32v3(0.22, 0.35, swing*0.5);
-	Union(t, sdCapsule(o, swordBase, swordBase + f32v3(0.04, 0.45, 0.0), 0.015), 7.0);
-
-	const f32v2 lightmap = fnSceneMapLights(o);
-	Union(t, lightmap);
-
-	return t;
+f32 dmTorus(f32v3 p, f32v2 t) {
+	f32v2 q = f32v2(length(p.xz) - t.x, p.y);
+	return length(q) - t.y;
 }
+
+f32 dmRoundBox(f32v3 p, f32v3 b, f32 r) {
+	f32v3 q = abs(p) - b + r;
+	return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+
+// polynomial smooth-min (iq). blends two fields over a radius k.
+f32 dmSmoothUnion(f32 a, f32 b, f32 k) {
+	f32 h = clamp(0.5 + 0.5*(b - a)/k, 0.0, 1.0);
+	return mix(b, a, h) - k*h*(1.0 - h);
+}
+
+mat2 dmRot2(f32 a) { f32 c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+// -- the scene ----------------------------------------------------------------
+// returns vec2(signed distance, materialId). materialId indexes inMaterial[].
+f32v2 fnSceneMap(f32v3 o) {
+	f32v2 res = f32v2(1e9, -1.0);
+
+	// geometry only breathes while animating; otherwise it's frozen so the
+	// accumulator in propagate/accumulate can converge for as long as it likes.
+	f32 t = (skAnimate != 0) ? iTime : 0.0;
+
+	// -- ground: infinite plane. material 0 is the procedural checker (handled
+	//    specially in propagate.comp) so it gets its albedo/roughness per-pixel.
+	Union(res, o.y, 0.0);
+
+	// -- hero: a gold mass melting between a sphere and a cube, on a little
+	//    wooden pedestal at the origin.
+	{
+		f32v3 p   = o - f32v3(0.0, 1.25, 0.0);
+		f32 ball  = dmSphere(p, 0.95);
+		f32 cube  = dmRoundBox(p, f32v3(0.72), 0.08);
+		f32 mass  = dmSmoothUnion(ball, cube, 0.45 + 0.25*sin(t));
+		Union(res, mass, 5.0);                          // gold
+
+		f32 pedestal = dmRoundBox(o - f32v3(0.0, 0.18, 0.0),
+		                          f32v3(1.15, 0.18, 1.15), 0.06);
+		Union(res, pedestal, 2.0);                      // wood
+	}
+
+	// -- a ring of polished spheres laid out by polar domain repetition, so one
+	//    primitive becomes N. each one bobs on its own phase.
+	{
+		const f32 count = 7.0;
+		f32 seg    = TAU / count;
+		f32 rawAng = atan(o.z, o.x);
+		f32 idx    = floor((rawAng + PI) / seg);        // which copy we're in
+		f32 ang    = mod(rawAng + 0.5*seg, seg) - 0.5*seg;
+		f32 rad    = length(o.xz);
+		f32v3 q    = f32v3(cos(ang)*rad, o.y, sin(ang)*rad) - f32v3(4.0, 0.7, 0.0);
+		q.y       -= 0.25*sin(t*1.6 + idx);             // bob
+		f32 d      = dmSphere(q, 0.6) * 0.8;            // *0.8: polar fold isn't
+		                                                // exact, keep march safe
+		f32 mtl    = (mod(idx, 2.0) < 1.0) ? 6.0 : 1.0; // gray metal / pink metal
+		Union(res, d, mtl);
+	}
+
+	// -- a forest of slowly twisting pillars (XZ domain repeat) with a circular
+	//    clearing carved out so the hero has room to breathe.
+	{
+		f32v3 q = o - f32v3(0.0, 2.0, 0.0);
+		q.x = mod(q.x + 4.0, 8.0) - 4.0;
+		q.z = mod(q.z + 4.0, 8.0) - 4.0;
+		q.xz = dmRot2(0.18*o.y + 0.15*t) * q.xz;        // height-based twist
+		f32 pillar   = dmRoundBox(q, f32v3(0.45, 4.0, 0.45), 0.12);
+		f32 clearing = 6.0 - length(o.xz);              // >0 inside radius 6
+		pillar = max(pillar, clearing);                 // subtract the clearing
+		Union(res, pillar * 0.7, 3.0);                  // *0.7: twist safety
+	}
+
+	// -- a thin metal ring slowly tumbling above the hero.
+	{
+		f32v3 p = o - f32v3(0.0, 2.4, 0.0);
+		p.xz = dmRot2(0.5*t) * p.xz;
+		p.xy = dmRot2(0.9)   * p.xy;                    // fixed tilt
+		Union(res, dmTorus(p, f32v2(2.7, 0.10)), 6.0);  // gray metal
+	}
+
+	// -- a floating glass sphere off to one side, for refraction.
+	{
+		f32v3 p = o - f32v3(-3.4, 1.7 + 0.3*sin(t*1.2), 2.8);
+		Union(res, dmSphere(p, 0.7), 7.0);              // glass
+	}
+
+	// -- fold in the area lights so primary + NEE rays can register them
+	//    (their ids land at 100 + lightIndex via fnSceneMapLights).
+	{
+		f32v2 lit = fnSceneMapLights(o);
+		if (lit.x < res.x) { res = lit; }
+	}
+
+	return res;
+}
+
+// for now just a sphere
+// f32v2 fnSceneMap(f32v3 o) {
+// 	f32v2 t = f32v2(1e9, -1.0);
+// 	float T = 0.0; // convergence mode
+
+// 	// -------------------------------------------------------------------------
+// 	// -- corridor tiling: infinite hallway grid
+// 	// -------------------------------------------------------------------------
+// 	f32v3 p = o;
+
+// 	// main corridor along X, repeat every 6 units in Z
+// 	float corridorW = 1.4f;
+// 	float corridorH = 2.2f;
+// 	float corridorRepZ = 6.0f;
+// 	p.z = mod(p.z + corridorRepZ*0.5, corridorRepZ) - corridorRepZ*0.5;
+
+// 	// walls, floor, ceiling via box subtraction — inside is negative
+// 	float corridor = -sdBox(p, f32v3(100.0, corridorH, corridorW));
+// 	// Union(t, corridor, 1.0); // wall material
+
+// 	// -------------------------------------------------------------------------
+// 	// -- floor, plane
+// 	// -------------------------------------------------------------------------
+// 	f32v3 fp = o;
+// 	Union(t, sdPlane(fp, f32v3(0, 1, 0), corridorH), 1.0); // floor material
+
+// 	// -------------------------------------------------------------------------
+// 	// -- ceiling ribs — structural Chozo architecture
+// 	// -------------------------------------------------------------------------
+// 	f32v3 rp = o;
+// 	rp.x = mod(rp.x + 1.5, 3.0) - 1.5;
+// 	Union(t, sdBox(rp - f32v3(0, corridorH - 0.18, 0), f32v3(0.06, 0.2, corridorW + 0.1)), 1.0);
+
+// 	// -------------------------------------------------------------------------
+// 	// -- wall panels — recessed with glowing trim
+// 	// -------------------------------------------------------------------------
+// 	f32v3 wp = o;
+// 	wp.x = mod(wp.x + 1.5, 3.0) - 1.5;
+// 	{
+// 		// left wall panel
+// 		f32v3 lp = wp - f32v3(0, 0.4, -(corridorW - 0.05));
+// 		Union(t, sdRoundBox(lp, f32v3(0.6, 0.7, 0.04), 0.05), 3.0);
+// 		// glowing trim ring around panel
+// 		float trimOuter = sdRoundBox(lp, f32v3(0.65, 0.75, 0.03), 0.04);
+// 		float trimInner = sdRoundBox(lp, f32v3(0.58, 0.68, 0.06), 0.04);
+// 		Union(t, sdShell(trimOuter, 0.01), 8.0); // emissive teal trim
+// 	}
+// 	{
+// 		// right wall panel
+// 		f32v3 rp2 = wp - f32v3(0, 0.4, (corridorW - 0.05));
+// 		Union(t, sdRoundBox(rp2, f32v3(0.6, 0.7, 0.04), 0.05), 3.0);
+// 		Union(t, sdShell(sdRoundBox(rp2, f32v3(0.65, 0.75, 0.03), 0.04), 0.01), 8.0);
+// 	}
+
+// 	// -------------------------------------------------------------------------
+// 	// -- energy conduit pipes along ceiling corners
+// 	// -------------------------------------------------------------------------
+// 	{
+// 		float pipeR = 0.07f;
+// 		// left pipe
+// 		Union(t, sdCylinder(o - f32v3(0, corridorH - 0.4, -(corridorW - 0.12)), pipeR, 999.0), 9.0); // emissive orange
+// 		// right pipe
+// 		Union(t, sdCylinder(o - f32v3(0, corridorH - 0.4,  (corridorW - 0.12)), pipeR, 999.0), 9.0);
+// 	}
+
+// 	// -------------------------------------------------------------------------
+// 	// -- Chozo statue alcove — every 12 units
+// 	// -------------------------------------------------------------------------
+// 	{
+// 		f32v3 ap = o;
+// 		ap.x = mod(ap.x + 6.0, 12.0) - 6.0;
+
+// 		// alcove recess in left wall
+// 		float alcove = sdBox(ap - f32v3(0, 0.0, -(corridorW + 0.4)), f32v3(0.8, 1.6, 0.5));
+// 		t.x = opSmoothSubtraction(alcove, t.x, 0.06);
+
+// 		// statue body — stylized bird figure
+// 		f32v3 sp = ap - f32v3(0, -corridorH + 0.0, -(corridorW + 0.5));
+// 		Union(t, sdCylinder(sp - f32v3(0, 0.5, 0), 0.15, 0.4), 2.0); // torso
+// 		Union(t, sdSphere(sp - f32v3(0, 1.05, 0), 0.14), 2.0);        // head
+// 		// wings spread
+// 		Union(t, sdCapsule(sp, f32v3(-0.15, 0.7, 0), f32v3(-0.55, 0.5, 0.1), 0.05), 2.0);
+// 		Union(t, sdCapsule(sp, f32v3( 0.15, 0.7, 0), f32v3( 0.55, 0.5, 0.1), 0.05), 2.0);
+// 		// beak
+// 		// Union(t, sdCone(sp - f32v3(0, 1.05, -0.12), 0.04, 0.1), 2.0);
+// 		// glowing orb in hands
+// 		Union(t, sdSphere(sp - f32v3(0, 0.35, -0.18), 0.08), 10.0); // emissive purple orb
+// 	}
+
+// 	// -------------------------------------------------------------------------
+// 	// -- floor hazard — lava pit every 9 units
+// 	// -------------------------------------------------------------------------
+// 	{
+// 		f32v3 lp = o;
+// 		lp.x = mod(lp.x + 4.5, 9.0) - 4.5;
+// 		lp.z = mod(lp.z + corridorRepZ*0.5, corridorRepZ) - corridorRepZ*0.5;
+
+// 		// pit opening
+// 		float pit = sdBox(lp - f32v3(0, -corridorH + 0.01, 0), f32v3(0.55, 0.08, corridorW*0.5));
+// 		t.x = opSmoothSubtraction(pit, t.x, 0.04);
+
+// 		// lava surface just below floor
+// 		Union(t, sdBox(lp - f32v3(0, -corridorH - 0.08, 0), f32v3(0.52, 0.02, corridorW*0.48)), 11.0); // emissive lava
+// 	}
+
+// 	// -------------------------------------------------------------------------
+// 	// -- hanging stalactite / root formations from ceiling
+// 	// -------------------------------------------------------------------------
+// 	// {
+// 	// 	f32v3 hp = o;
+// 	// 	hp.x = mod(hp.x + 0.9, 1.8) - 0.9;
+// 	// 	hp.z = mod(hp.z + 0.7, 1.4) - 0.7;
+// 	// 	float stHeight = 0.3 + 0.2*fract(sin(dot(floor(o.xz/f32v2(1.8,1.4)), f32v2(127.1,311.7)))*43758.5);
+// 	// 	Union(t, sdCone(hp - f32v3(0, corridorH - stHeight, 0), 0.04, stHeight), 1.0);
+// 	// }
+
+// 	// -------------------------------------------------------------------------
+// 	// -- door frame — sealed blast door mid corridor
+// 	// -------------------------------------------------------------------------
+// 	{
+// 		f32v3 dp = o;
+// 		dp.x = mod(dp.x + 9.0, 18.0) - 9.0;
+// 		dp.z = mod(dp.z + corridorRepZ*0.5, corridorRepZ) - corridorRepZ*0.5;
+
+// 		// door frame arch
+// 		float frame = sdBox(dp, f32v3(0.08, corridorH, corridorW + 0.1));
+// 		float frameInner = sdBox(dp, f32v3(0.12, corridorH - 0.25, corridorW - 0.2));
+// 		Union(t, max(frame, -frameInner), 3.0);
+
+// 		// door panel — two sliding halves
+// 		Union(t, sdBox(dp - f32v3(0,  0.55, 0), f32v3(0.05, corridorH*0.45, corridorW*0.85)), 4.0); // upper half
+// 		Union(t, sdBox(dp - f32v3(0, -0.55, 0), f32v3(0.05, corridorH*0.45, corridorW*0.85)), 4.0); // lower half
+
+// 		// door lock indicator — glowing
+// 		Union(t, sdSphere(dp - f32v3(-0.06, 0, 0), 0.06), 12.0); // emissive red = locked
+// 	}
+
+// 	// -------------------------------------------------------------------------
+// 	// -- material IDs legend
+// 	//  1 = dark chozo stone
+// 	//  2 = lighter stone / statue
+// 	//  3 = metal panel
+// 	//  4 = blast door metal
+// 	//  8 = teal emissive trim
+// 	//  9 = orange emissive pipe
+// 	// 10 = purple emissive orb
+// 	// 11 = lava emissive
+// 	// 12 = red emissive lock
+// 	// -------------------------------------------------------------------------
+
+// 	const f32v2 lightmap = fnSceneMapLights(o);
+// 	Union(t, lightmap);
+// 	return t;
+// }
 
 // -----------------------------------------------------------------------------
 // -- debug with knobs

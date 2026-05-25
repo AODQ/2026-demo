@@ -1,0 +1,104 @@
+#line 2
+layout(std430, binding = 0) buffer Buffer_GBuffer {
+	GBuffer inGBuffer[];
+};
+
+layout(binding = 0, rgba16f) uniform image2D imgOut;
+layout(binding = 2) uniform sampler2D samplerIn;
+layout(binding = 3) uniform sampler2D samplerMoment;
+
+uniform int uPassIndex;
+
+FnSceneMapStub;
+
+// in passthrough mode just copy input to output without filtering
+#define Passthrough 0
+
+void main() {
+	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+	if (any(greaterThanEqual(px, ivec2(skResolution)))) { return; }
+	const int idx = px.y * skResolution.x + px.x;
+
+	#if Passthrough
+	{
+		const vec2 uv = (vec2(px)+0.5f) / vec2(skResolution);
+		const vec4 col = texture(samplerIn, uv);
+		imageStore(imgOut, px, col);
+		return;
+	}
+	#endif
+
+	const vec3 posC = inGBuffer[idx].ori;
+	const vec3 norC = inGBuffer[idx].nor;
+	const float variance = (
+		max(
+			texture(samplerMoment, (vec2(px)+0.5f)/vec2(skResolution)).b,
+			0.001f
+		)
+	);
+
+	const vec2 uvC = (vec2(px)+0.5f) / vec2(skResolution);
+	const vec4 colC = texture(samplerIn, uvC);
+
+	const float sigmaL = 4.0f;
+	const float sigmaP = 1.0f;
+	const float sigmaN = 128.0f;
+
+	// scale step based by variance
+	float varianceScale = clamp(variance / 0.1f, 0.5f, 2.0f);
+	int step = int(mix(1.0f, float(1 << uPassIndex), varianceScale));
+
+	// a-trous 5-tap cross kernel offset
+	const ivec2 offsets[5] = ivec2[](
+		ivec2(0, 0),
+		ivec2(1, 0),
+		ivec2(-1, 0),
+		ivec2(0, 1),
+		ivec2(0, -1)
+	);
+
+	vec3 sumRgb = vec3(0.0);
+	float sumWeight = 0.0;
+
+	for (int i = 0; i < 5; ++i) {
+		ivec2 npx = px + offsets[i] * step;
+		if (
+			any(lessThan(npx, ivec2(0))) ||
+			any(greaterThanEqual(npx, ivec2(skResolution)))
+		) {
+			continue;
+		}
+		const int nidx = npx.y * skResolution.x + npx.x;
+
+		const vec2 uvQ = (vec2(npx)+0.5f) / vec2(skResolution);
+		const vec4 colQ = texture(samplerIn, uvQ);
+		const vec3 posQ = inGBuffer[nidx].ori;
+		const vec3 norQ = inGBuffer[nidx].nor;
+const float maxLum = 10.0;
+const float lumQraw = dot(colQ.rgb, vec3(0.2126, 0.7152, 0.0722));
+const vec3 colQclamped = colQ.rgb * min(1.0, maxLum / max(lumQraw, 1e-4));
+const float lumCraw = dot(colC.rgb, vec3(0.2126, 0.7152, 0.0722));
+const vec3 colCclamped = colC.rgb * min(1.0, maxLum / max(lumCraw, 1e-4));
+	const float lumC = dot(colCclamped.rgb, vec3(0.2126, 0.7152, 0.0722));
+	const float lumQ = dot(colQclamped, vec3(0.2126, 0.7152, 0.0722));
+
+
+		// edge stopping weights
+		const float wN = pow(max(dot(norC, norQ), 0.0f), sigmaN);
+		const float wP = exp(-distance(posC, posQ) / (sigmaP + 1e-4f));
+		const float wL = (
+			exp(-abs(lumC - lumQ) / (sigmaL * sqrt(variance) + 1e-4f))
+		);
+
+		// combined weight
+		const float w = wN * wP * wL;
+
+// clamp fireflies before weighting
+// use colQclamped instead of colQ.rgb in sumRgb
+sumRgb += colQclamped * w;
+sumWeight += w;
+	}
+
+	const vec3 outRgb = sumRgb / (sumWeight + 1e-4f);
+	imageStore(imgOut, px, vec4(vec3(outRgb), 1.0));
+}

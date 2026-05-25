@@ -12,10 +12,22 @@ layout(binding = 4) uniform sampler2D samplerHistoryMoment;
 
 FnSceneMapStub;
 
+// in passthrough mode just store radiance directly
+#define Passthrough 0
+
 void main() {
 	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
 	int idx = px.y * skResolution.x + px.x;
 	vec4 col = inRadiance[idx];
+
+#if Passthrough
+	{
+		imageStore(imgHistory, px, col);
+		imageStore(imgHistoryPos, px, vec4(0.0f));
+		imageStore(imgHistoryMoment, px, vec4(0.0f));
+		return;
+	}
+#endif
 
 	// clamp fireflies
 	vec3 P = inGbuffer[idx].ori;
@@ -39,15 +51,15 @@ void main() {
 	float aspect = float(skResolution.x) / float(skResolution.y);
 	vec2 uvPrev;
 	bool onScreen = fnWorldToScreen(P, camOriPrev, camTgtPrev, fovPrev, uvPrev);
-	uvPrev.x /= aspect;
 
-	// calculate last camera jitter uv
+	// // jitter UV by previous camera seed
 	{
-		f32v2 seed2 = fnSampleSeed2(px, 32, iFrame-1);
+		f32v2 seed2 = fnSampleSeed2(px, 32);
 		uvPrev -= (
-			(fnSampleUniform2(seed2) - 0.5f) / vec2(skResolution)
+			(fnSampleUniform2(seed2) - 0.5f) * 2.0f / vec2(skResolution)
 		);
 	}
+	uvPrev.x /= aspect;
 	vec2 uvS = uvPrev*0.5 + 0.5;
 	vec2 pxF = uvS * vec2(skResolution) - 0.5;
 
@@ -56,10 +68,11 @@ void main() {
 	if (onScreen && all(greaterThanEqual(pxF, vec2(0))) && all(lessThan(pxF, vec2(skResolution)))) {
 		hist = texture(samplerHistory, uvS);
 		const float lumHist = dot(hist.rgb, vec3(0.2126, 0.7152, 0.0722));
-		vec3 prevPos = texture(samplerHistoryPos, uvS).rgb;
+		ivec2 pxPrev = ivec2(pxF + 0.5f);
+		vec3 prevPos = texelFetch(samplerHistoryPos, pxPrev, 0).rgb;
 		// disocclusion
 		const float footprint = (
-			(uSlots[32]==0.0f?0.015f:uSlots[32]*0.01f) * distance(P, camOriCur)
+			(uSlots[32]==0.0f?0.005f:uSlots[32]*0.01f) * distance(P, camOriCur)
 		);
 		valid = distance(P, prevPos) < max(footprint, 1e-3);
 	}
@@ -67,7 +80,7 @@ void main() {
 	vec3 outRgb; float outCount;
 	if (valid) {
 #if skAnimate
-		const float histCount = min(hist.a, 4.0);
+		const float histCount = min(hist.a, skHistoryLength);
 #else
 		const float histCount = hist.a;
 #endif

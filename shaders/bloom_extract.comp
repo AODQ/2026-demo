@@ -1,0 +1,19 @@
+#line 2
+layout(binding = 0, rgba16f) writeonly uniform image2D imgBloomExtract;
+layout(binding = 2) uniform sampler2D samplerAccumulated;
+
+uniform float uBloomThreshold; // try 1.0f to start
+
+void main() {
+	const ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+	const f32v2 uv = (f32v2(px) + 0.5f) / f32v2(skResolution);
+
+	f32v3 col = texture(samplerAccumulated, uv).rgb;
+
+	const f32 brightness = max(col.r, max(col.g, col.b));
+	f32 soft = clamp(brightness - uBloomThreshold, 0.0f, 1.0f);
+	soft /= max(brightness, 0.0001f); // normalize so dim pixels fade softly
+	col *= soft;
+
+	imageStore(imgBloomExtract, px, f32v4(col, 1.0f));
+}

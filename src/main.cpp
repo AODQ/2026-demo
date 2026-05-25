@@ -71,7 +71,7 @@ i32 main(i32, char * *) {
 		.width = skResolutionX,
 		.height = skResolutionY,
 		.localSize = 8,
-		.vsync = true,
+		.vsync = false,
 		.hotReload = true,
 		.shaderDir = "shaders",
 	};
@@ -173,7 +173,8 @@ i32 main(i32, char * *) {
 	IntroPassDesc const passInit {
 		.name = "initial",
 		.embedded = nullptr, // TODO embed
-		.sched = IntroSchedule_Startup,
+		// .sched = IntroSchedule_Startup,
+		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Explicit,
 		.gx = 1, .gy = 1, .gz = 1,
 		.writeCount = 0,

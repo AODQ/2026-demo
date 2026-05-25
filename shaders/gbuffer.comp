@@ -5,6 +5,10 @@ layout(std430, binding = 0) buffer Buffer_GBuffer {
 layout(std430, binding = 1) buffer Buffer_Light { Light inLight[]; };
 
 f32v2 fnSceneMapLights(f32v3 o) {
+	// gbuffer doesn't need to know about lights
+#if 1
+	return f32v2(999999.0f, -1.0f);
+#endif
 	f32v2 res = f32v2(999999.0f, -1.0f);
 	for (int i = 0; i < skLightsMax; ++i) {
 		if (
@@ -54,12 +58,7 @@ void main() {
 
 	// -- march into scene
 	const f32v2 hit = (
-		fnSceneMarch(
-			eye,
-			/*maxIterations=*/128,
-			/*maxDistance=*/128.0f,
-			/*threshold=*/0.001f
-		)
+		fnSceneMarch(eye, skSceneMarchHq)
 	);
 	f32v3 ori = eye.ori + eye.dir * hit.x;
 
