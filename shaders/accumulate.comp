@@ -31,14 +31,14 @@ void main() {
 
 	if (converge) {
 		// converge with history using a running average
-		float alpha = 1.0f / (hist.a + 1.0f);
+		float alpha = col.a / (hist.a + col.a);
 		if (skConverge == 0) {
-			alpha = 0.5f;
+			alpha = 1.0f;
 		}
 		const vec3 accum = mix(hist.rgb, col.rgb, alpha);
 
 		// store accumulation
-		imageStore(imgHistory, px, vec4(accum, hist.a + 1.0f));
+		imageStore(imgHistory, px, vec4(accum, hist.a + col.a));
 	} else {
 		imageStore(imgHistory, px, hist);
 	}

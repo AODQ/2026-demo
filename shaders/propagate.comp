@@ -32,18 +32,18 @@ f32v2 fnSceneMapLights(f32v3 o) {
 f32v3 fnEmitterSample(
 	int lightIndex,
 	f32v3 normal,
-	inout f32 seed
+	inout f32v2 seed2
 ) {
 	if (lightIndex == skLightIndexSky) {
 		// uniform sampling of the hemisphere for sky
-		vec2 u = fnSampleUniform2(seed);
+		vec2 u = fnSampleUniform2(seed2);
 		f32v3 dir = Reorient_Hemisphere(
 			normalize(To_Cartesian(sqrt(u.y), TAU*u.x)),
 			normal
 		);
 		return dir*1e6f;
 	}
-	const f32v2 uv = (fnSampleUniform2(seed) - 0.5f) * 2.0f;
+	const f32v2 uv = (fnSampleUniform2(seed2) - 0.5f) * 2.0f;
 	const Light light = inLight[lightIndex];
 	// sample a point on the surface of the light
 	const f32v3 referenceAxis = (
@@ -159,7 +159,8 @@ f32 fnBsdfPdf ( f32v3 N, f32v3 wi, f32v3 wo, Material mat ) {
 }
 
 f32v3 fnBsdfSample (
-	f32v3 N, f32v3 wi, f32v3 P, Material mat, out f32 pdf, inout f32 seed
+	f32v3 N, f32v3 wi, f32v3 P, Material mat, out f32 pdf,
+	inout f32 seed, inout f32v2 seed2
 ) {
 	if ( mat.transmittive > 0.0 ) {
 		f32v3 t = refract(wi, N, mat.transmittive);
@@ -173,12 +174,12 @@ f32v3 fnBsdfSample (
 	f32 diffChance = fnSampleUniform(seed);
 	// Diffuse lobe: sample direction, then report the shared combined pdf.
 	if ( diffChance < mat.diffuse ) {
-		f32v3 wo = fnSampleHemisphereCos(N, pdf, seed);
+		f32v3 wo = fnSampleHemisphereCos(N, pdf, seed2);
 		pdf = fnBsdfPdf(N, wi, wo, mat);
 		return wo;
 	}
 	// Specular lobe: sample a half-vector, reflect the view across it.
-	f32v2 xi = fnSampleUniform2(seed);
+	f32v2 xi = fnSampleUniform2(seed2);
 	f32 a2 = max(mat.alpha * mat.alpha, 0.0001f);
 	f32v3 H = fnSampleGgxH(N, a2, xi);
 	f32v3 wo = 2.0 * dot(-wi, H) * H - -wi;
@@ -254,6 +255,7 @@ int fnIrradiance(
 	inout f32v3 irradianceThroughput,
 	inout f32v3 irradianceAccumulator,
 	inout f32 seed,
+	inout f32v2 seed2,
 
 	inout Ray rayWo,
 	inout f32v2 hitWo,
@@ -266,7 +268,7 @@ int fnIrradiance(
 	f32 emitPdf;
 
 	// -- propagate irradiance throughput along bsdf
-	bsdfWo = fnBsdfSample(itNor, itWi, itOri, mat, bsdfPdf, seed);
+	bsdfWo = fnBsdfSample(itNor, itWi, itOri, mat, bsdfPdf, seed, seed2);
 	const f32v3 irradianceThroughputPrevious = irradianceThroughput;
 	const f32 dotNorWo = dot(itNor, bsdfWo);
 
@@ -364,7 +366,7 @@ int fnIrradiance(
 			lightIndex = int(fnSampleUniform(seed) * skLightsInSceneInclSky);
 		}
 
-		const f32v3 emitterPos = fnEmitterSample(lightIndex, itNor, seed);
+		const f32v3 emitterPos = fnEmitterSample(lightIndex, itNor, seed2);
 		const f32v3 emitterWo = normalize(emitterPos - itOri);
 		const f32 emitterDist = length(emitterPos - itOri);
 
@@ -418,6 +420,7 @@ int fnPropagate(
 	inout f32v3 irradianceThroughput,
 	inout f32v3 irradianceAccumulator,
 	inout f32 seed,
+	inout f32v2 seed2,
 	in const int iteration
 ) {
 	// -- compute irradiance on surface
@@ -430,7 +433,8 @@ int fnPropagate(
 		fnIrradiance(
 			mat,
 			itOri, itNor, itWi, bsdfWo,
-			irradianceThroughput, irradianceAccumulator, seed,
+			irradianceThroughput, irradianceAccumulator,
+			seed, seed2,
 			rayWo, hitWo,
 			iteration
 		)
@@ -459,6 +463,12 @@ void main() {
 	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
 	int linearIdx = px.y * skResolution.x + px.x;
 	const GBuffer gbuf = data[linearIdx];
+
+	// check if radiance has high alpha count, in which case can quit
+	if (iFrame > 100.0f) {
+		outRadiance[linearIdx] = vec4(0.0f);
+		return;
+	}
 
 	// -- extract origin and normal
 	f32v3 itOri = gbuf.ori;
@@ -503,52 +513,78 @@ void main() {
 		return;
 	}
 
-	// consistent seed
-	f32 seed = fnSampleSeed(px);
+	f32v4 historyAccumulator = vec4(0.0f);
 
-	// -- render loop
-	f32v3 irradianceThroughput = vec3(1.0f);
-	f32v3 irradianceAccumulator = vec3(0.0f);
+	for (int i = 0; i < skSamplesPerPixel; ++i) {
+		// create a new seed, need to reset dimension
+		f32 seed = fnSampleSeed(px, i);
+		f32v2 seed2 = fnSampleSeed2(px, i);
 
-	int hit = 0;
-	for (int i = 0; i < skPropagationIterations; ++i) {
-		int returnEnum = (
-			fnPropagate(
-				itOri, itNor, itWi,
-				itMaterialId, irradianceThroughput, irradianceAccumulator, seed,
-				i
-			)
-		);
+		// -- render loop
+		f32v3 irradianceThroughput = vec3(1.0f);
+		f32v3 irradianceAccumulator = vec3(0.0f);
 
-		if (returnEnum == skHitNone) {
-			continue;
+		int hit = 0;
+		for (int i = 0; i < skPropagationIterations; ++i) {
+			int returnEnum = (
+				fnPropagate(
+					itOri, itNor, itWi,
+					itMaterialId, irradianceThroughput, irradianceAccumulator,
+					seed, seed2,
+					i
+				)
+			);
+
+			if (returnEnum == skHitNone) {
+				continue;
+			}
+
+			if (returnEnum == skHitIndirect) {
+				hit = 1;
+				continue;
+			}
+
+			if (returnEnum == skHitDirect) {
+				hit = 1;
+				break;
+			}
+
+			if (returnEnum == skHitTerminate) {
+				break;
+			}
 		}
 
-		if (returnEnum == skHitIndirect) {
-			hit = 1;
-			continue;
-		}
-
-		if (returnEnum == skHitDirect) {
-			hit = 1;
-			break;
-		}
-
-		if (returnEnum == skHitTerminate) {
-			break;
-		}
-	}
-
-	// debug for NaN hunts
-	if (any(isnan(irradianceAccumulator)) && hit > 0)
-	{
-		outRadiance[linearIdx] = vec4(1.0f, 0.0f, 1.0f, -1.0f);
+		// debug for NaN hunts
+		if (any(isnan(irradianceAccumulator)) && hit > 0)
+		{
+			outRadiance[linearIdx] = vec4(1.0f, 0.0f, 1.0f, -1.0f);
+			return;
 #if 0
-		// in this mode just discard NaNs
-		outRadiance[linearIdx] = vec4(0.0f);
+			// in this mode just discard NaNs
+			outRadiance[linearIdx] = vec4(0.0f);
 #endif
-		return;
+			return;
+		}
+
+		// accumulate history for this iteration
+		// clamp fireflies
+		const float maxLuminance = 10.0f;
+		float lum = dot(irradianceAccumulator, vec3(0.2126f, 0.7152f, 0.0722f));
+		if (lum > maxLuminance) {
+			irradianceAccumulator *= maxLuminance / lum;
+		}
+		historyAccumulator += vec4(irradianceAccumulator, 1.0f);
+
+		// -- restore for next iteration
+		itOri = gbuf.ori;
+		itNor = gbuf.nor;
+		itWi = gbuf.wi;
+		itMaterialId = gbuf.materialId;
 	}
 
-	outRadiance[linearIdx] = vec4(irradianceAccumulator, 1.0f);
+	// -- write out final radiance
+	// want to keep track of history so write out the alpha counter
+	outRadiance[linearIdx] = (
+		vec4(historyAccumulator.rgb / historyAccumulator.a, historyAccumulator.a)
+	);
 }

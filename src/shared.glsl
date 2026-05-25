@@ -1,3 +1,4 @@
+#line 2
 #define f32v2 vec2
 #define f32v3 vec3
 #define f32v4 vec4
@@ -76,7 +77,8 @@ uniform float uSlots[64];
 // -- macro tuning
 // -----------------------------------------------------------------------------
 
-#define skPropagationIterations 2
+#define skPropagationIterations 1
+#define skSamplesPerPixel 4
 #define skConverge 1
 
 #define skResolution ivec2(skResolutionX, skResolutionY)
@@ -305,9 +307,19 @@ float opReflect ( inout f32v3 p, f32v3 plane_normal, float offset ) {
 #define skRandom skRandomBlueNoise
 
 // global dimension counter
+// 1/phi, golden ratio, low-discrepancy increment
+const f32 R1 = 0.61803398875;
+const f32v2 R2 = f32v2(0.754876662466, 0.56984029099);
+const f32v3 R3 = (
+	f32v3(
+		0.8191725133961644, // 1/phi3
+		0.6710436067037892, // 1/phi3^2
+		0.5497004779019703  // 1/phi3^3
+	)
+);
 int gSampleDimension = 1;
 
-float fnSampleSeed(ivec2 px) {
+float fnSampleSeed(ivec2 px, int iteration=0) {
 #if skRandom == skRandomSine
 	return (
 		fract(
@@ -315,51 +327,76 @@ float fnSampleSeed(ivec2 px) {
 				  float(px.x)*3.12931
 				+ float(px.y)*7.23145
 				+ float(iFrame)*1.61803398875
+				+ float(iteration)*0.61803398875
 			) * 43758.5453123
 		)
 	);
 #elif skRandom == skRandomBlueNoise
-	vec2 uv = (vec2(px) + 0.5f) / vec2(textureSize(samplerBlueNoise, 0))*0.01f;
+	ivec2 size = textureSize(samplerBlueNoise, 0);
+	vec2 uv = vec2(px % size) / vec2(size);
 	float bn = texture(samplerBlueNoise, uv).r;
-	// golden ratio for offset per frame
-	return fract(bn + float(iFrame)*0.61803398875);
+	return fract(bn + float(iFrame)*R1 + float(iteration)*0.56984029099);
 #endif
 }
+
+f32v2 fnSampleSeed2(ivec2 px, int iteration=0) {
+#if skRandom == skRandomSine
+	return vec2(fnSampleSeed(px, iteration)) + (
+		vec2(1.0, 1.3)*float(iteration)*0.61803398875
+	);
+#else
+	ivec2 size = textureSize(samplerBlueNoise, 0);
+	vec2 uv = vec2(px % size) / vec2(size);
+	vec2 bn = texture(samplerBlueNoise, uv).rg;
+	return fract(bn + float(iFrame)*R2 + float(iteration)*R2*0.56984029099);
+#endif
+}
+
+f32v3 fnSampleSeed3(ivec2 px, int iteration=0) {
+#if skRandom == skRandomSine
+	return vec3(fnSampleSeed(px, iteration)) + (
+		vec3(1.0, 1.3, 1.7)*float(iteration)*0.61803398875
+	);
+#else
+	ivec2 size = textureSize(samplerBlueNoise, 0);
+	const f32v2 uv = vec2(px % size) / vec2(size);
+	const f32v3 bn = texture(samplerBlueNoise, uv).rgb;
+	return fract(bn + float(iFrame)*R3 + float(iteration)*R3*0.56984029099);
+#endif
+}
+
+
 
 float fnSampleUniform(inout float seed) {
 #if skRandom == skRandomSine
 	return fract(sin(seed += 0.1)*43758.5453123);
 #else
-	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
-	ivec2 size = textureSize(samplerBlueNoise, 0);
-	ivec2 off = ivec2(gSampleDimension * 127, gSampleDimension * 63);
-	vec2 uv = vec2((px + off) % size) / vec2(size);
-	float bn = texture(samplerBlueNoise, uv).r;
-	return fract(bn + float(iFrame)*0.61803398875);
+	seed = fract(seed + R1);
+	return seed;
 #endif
 }
 
-vec2 fnSampleUniform2(inout float seed) {
+vec2 fnSampleUniform2(inout f32v2 seed) {
 #if skRandom == skRandomSine
 	return (
-		  fract(sin(vec2(seed+=0.1,seed+=0.1))
+		  fract(sin(vec2(seed.r+=0.1,seed.g+=0.1))
 		* vec2(43758.5453123,22578.1459123))
 	);
 #else
-	return vec2(fnSampleUniform(seed), fnSampleUniform(seed));
+	seed = fract(seed + R2);
+	return seed;
 #endif
 }
 
-vec3 fnSampleUniform3(inout float seed) {
+vec3 fnSampleUniform3(inout f32v3 seed) {
 #if skRandom == skRandomSine
 	return (
-		  fract(sin(vec3(seed+=0.1,seed+=0.1,seed+=0.1))
+		  fract(sin(vec3(seed.r+=0.1,seed.g+=0.1,seed.b+=0.1))
 		* vec3(43758.5453123,22578.1459123,842582.632592))
 	);
 #else
-	return (
-		vec3(fnSampleUniform(seed), fnSampleUniform(seed), fnSampleUniform(seed))
-	);
+	seed = fract(seed + R3);
+	return seed;
 #endif
 }
 
@@ -393,9 +430,9 @@ f32v3 To_Cartesian ( float cos_theta, float phi ) {
 
 vec3 fnSampleHemisphereCos(
 	f32v3 N,
-	out float pdf, inout float seed
+	out float pdf, inout f32v2 seed2
 ) {
-  vec2 u = fnSampleUniform2(seed);
+  vec2 u = fnSampleUniform2(seed2);
   f32v3 wo = Reorient_Hemisphere(
                 normalize(To_Cartesian(sqrt(u.y), TAU*u.x)), N);
   pdf = PDF_Cosine_Hemisphere(wo, N);
@@ -407,8 +444,8 @@ float PDF_Cone ( float lobe ) {
   return (TAU*sqr(sin(0.5*lobe)));
 }
 
-f32v3 Sample_Uniform_Cone ( float lobe, out float pdf, inout float seed ) {
-  f32v2 u = fnSampleUniform2(seed);
+f32v3 Sample_Uniform_Cone ( float lobe, out float pdf, inout f32v2 seed2 ) {
+  f32v2 u = fnSampleUniform2(seed2);
   float phi = TAU*u.x,
         cos_theta = 1.0 - u.y*(1.0 - cos(lobe));
   pdf = PDF_Cone(lobe);
