@@ -1,7 +1,7 @@
 #line 2
 layout(binding = 0, rgba16f) uniform image2D imgOut;
 
-layout(binding = 0) uniform sampler2D imgHistory;
+layout(binding = 1) uniform sampler2D samplerHistory;
 
 FnSceneMapStub;
 
@@ -81,7 +81,7 @@ uniform int iFrame;
 void main() {
 	// mix history
 	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
-	vec4 hist = texture(imgHistory, vec2(px) / vec2(skResolution));
+	vec4 hist = texture(samplerHistory, vec2(px) / vec2(skResolution));
 	hist = pow(hist, vec4(1.0 / 2.2));
 
 	// print knobs [[DEBUG STRIP ME OUT]]
@@ -133,6 +133,9 @@ void main() {
 			}
 		}
 	}
+
+	// try bluenoise debug print
+	hist = texture(samplerBlueNoise, vec2(px) / vec2(skResolution));
 
 	imageStore(imgOut, px, hist);
 }

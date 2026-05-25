@@ -99,6 +99,10 @@ i32 main(i32, char * *) {
 	IntroImage const imgHistory = intro_add_image(&imgDescHistory);
 	IntroImage const imgPresent = intro_add_image(&imgDescPresent);
 
+	IntroImage const imgBlueNoise = (
+		intro_load_texture_png("shaders/blue_noise.png")
+	);
+
 	// -- create buffers
 
 	IntroBufferDesc const bufDescPalette {
@@ -134,7 +138,8 @@ i32 main(i32, char * *) {
 		.dispatch = IntroDispatch_Explicit,
 		.gx = 1, .gy = 1, .gz = 1,
 		.write = INTRO_NONE,
-		.readCount = 0,
+		.reads = { imgBlueNoise },
+		.readCount = 1,
 		.buffers = { bufPalette, bufMaterials, bufLights, },
 		.bufferCount = 3,
 	};
@@ -145,7 +150,8 @@ i32 main(i32, char * *) {
 		.dispatch = IntroDispatch_Image,
 		.localX = 8, .localY = 8,
 		.write = INTRO_NONE,
-		.readCount = 0,
+		.reads = { imgBlueNoise },
+		.readCount = 1,
 		.buffers = { bufGbuffer, bufLights, },
 		.bufferCount = 2,
 	};
@@ -156,7 +162,8 @@ i32 main(i32, char * *) {
 		.dispatch = IntroDispatch_Image,
 		.localX = 8, .localY = 8,
 		.write = INTRO_NONE,
-		.readCount = 0,
+		.reads = { imgBlueNoise },
+		.readCount = 1,
 		.buffers = { bufGbuffer, bufRadiance, bufMaterials, bufLights, },
 		.bufferCount = 4,
 	};
@@ -166,8 +173,8 @@ i32 main(i32, char * *) {
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
 		.write = imgHistory,
-		.reads = { imgHistory },
-		.readCount = 1,
+		.reads = { imgBlueNoise, imgHistory },
+		.readCount = 2,
 		.buffers = { bufRadiance },
 		.bufferCount = 1,
 	};
@@ -177,8 +184,8 @@ i32 main(i32, char * *) {
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
 		.write = imgPresent,
-		.reads = { imgHistory },
-		.readCount = 1,
+		.reads = { imgBlueNoise, imgHistory },
+		.readCount = 2,
 	};
 
 	intro_add_pass(&passInit);

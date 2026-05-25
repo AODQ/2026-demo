@@ -17,7 +17,7 @@ void main() {
 
 	// reset history
 	if (iFrame == 0) {
-		hist = vec4(0.0f);
+		// hist = vec4(0.0f);
 	}
 
 	if (iFrame != 0) {
@@ -33,7 +33,10 @@ void main() {
 
 	if (converge) {
 		// converge with history using a running average
-		const float alpha = 1.0f / (hist.a + 1.0f);
+		float alpha = 1.0f / (hist.a + 1.0f);
+		if (skConverge == 0) {
+			alpha = 0.3f;
+		}
 		const vec3 accum = mix(hist.rgb, col.rgb, alpha);
 
 		// store accumulation

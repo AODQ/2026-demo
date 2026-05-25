@@ -26,10 +26,10 @@ void main() {
 	// common material
 	#define MTRL_GRAYMETAL(i) \
 		material[i].albedo = vec3(0.96, 0.96, 1.0) * albedoMult; \
-		material[i].alpha = 0.19*0.19; \
+		material[i].alpha = 0.01*0.01; \
 		material[i].diffuse = 0.05*0.05; \
 		material[i].transmittive = 0.0; \
-		material[i].fresnel = 0.05*0.05;
+		material[i].fresnel = 0.5*0.5;
 
 	#define MTRL_GOLD(i) \
 		material[i].albedo = vec3(1.0, 0.76, 0.05) * albedoMult; \
@@ -42,10 +42,10 @@ void main() {
 	// -- material setup, just one thread
 	if (i == 0u) {
 		material[0].albedo = vec3(0.11f, 0.55f, 0.21f) * albedoMult;
-		material[0].alpha = 0.1;
-		material[0].diffuse = 1.0;
+		material[0].alpha = 0.2;
+		material[0].diffuse = 0.01;
 		material[0].transmittive = 0.0;
-		material[0].fresnel = 1.0;
+		material[0].fresnel = 0.3;
 
 
 		MTRL_GRAYMETAL(1);

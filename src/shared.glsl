@@ -64,11 +64,20 @@ struct Light {
 #ifndef __cplusplus
 
 // -----------------------------------------------------------------------------
+// -- global state
+// -----------------------------------------------------------------------------
+
+layout(binding = 0) uniform sampler2D samplerBlueNoise;
+uniform float uKnobL;
+uniform float uKnobR;
+uniform float uSlots[64];
+
+// -----------------------------------------------------------------------------
 // -- macro tuning
 // -----------------------------------------------------------------------------
 
 #define skPropagationIterations 4
-#define skConverge 1
+#define skConverge 0
 
 #define skResolution ivec2(skResolutionX, skResolutionY)
 
@@ -513,10 +522,6 @@ f32v2 fnSceneMap(f32v3 o) {
 // -----------------------------------------------------------------------------
 // -- debug with knobs
 // -----------------------------------------------------------------------------
-
-uniform float uKnobL;
-uniform float uKnobR;
-uniform float uSlots[64];
 
 f32v3 knob3(int offset) {
 	return f32v3(uSlots[offset], uSlots[offset+1], uSlots[offset+2]);
