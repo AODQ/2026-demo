@@ -41,9 +41,9 @@ void main() {
 	f32v2 seed2 = fnSampleSeed2(px, 16);
 
 	// -- jitter UV
-	uv += (
-		(fnSampleUniform2(seed2) - 0.5f) * 2.0f / vec2(skResolution)
-	);
+	// uv += (
+	// 	(fnSampleUniform2(seed2) - 0.5f) * 2.0f / vec2(skResolution)
+	// );
 
 	// -- primary ray
 	vec3 cori;

@@ -124,5 +124,5 @@ void main() {
 		}
 	}
 
-	imageStore(imgOut, px, hist);
+	imageStore(imgOut, px, vec4(hist.rgb, 1.0f));
 }

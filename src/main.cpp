@@ -95,11 +95,23 @@ i32 main(i32, char * *) {
 	IntroImageDesc const imgDescPresent {
 		.doubleBuffered = false,
 	};
+	IntroImageDesc const imgDescHistoryMoment {
+		.doubleBuffered = true,
+	};
+	IntroImageDesc const imgDescFilterTemp {
+		.doubleBuffered = false,
+	};
+	IntroImageDesc const imgDescFilterOutput {
+		.doubleBuffered = false,
+	};
 
 	IntroImage const imgScene = intro_add_image(&imgDescPresent);
 	IntroImage const imgHistory = intro_add_image(&imgDescHistory);
 	IntroImage const imgPresent = intro_add_image(&imgDescPresent);
 	IntroImage const imgHistoryPos = intro_add_image(&imgDescHistoryPos);
+	IntroImage const imgHistoryMoment = intro_add_image(&imgDescHistoryMoment);
+	IntroImage const imgFilterTemp = intro_add_image(&imgDescFilterTemp);
+	IntroImage const imgFilterOutput = intro_add_image(&imgDescFilterOutput);
 
 	IntroImage const imgBlueNoise = (
 		intro_load_texture_png("shaders/bluenoise.png")
@@ -191,10 +203,13 @@ i32 main(i32, char * *) {
 		.embedded = nullptr, // TODO embed
 		.sched = IntroSchedule_EveryFrame,
 		.dispatch = IntroDispatch_Image,
-		.write = { imgHistory, imgHistoryPos, },
-		.writeCount = 2,
-		.reads = { imgStbnScalar, imgStbnVec2, imgHistory, imgHistoryPos, },
-		.readCount = 3,
+		.write = { imgHistory, imgHistoryPos, imgHistoryMoment, },
+		.writeCount = 3,
+		.reads = {
+			imgStbnScalar, imgStbnVec2,
+			imgHistory, imgHistoryPos, imgHistoryMoment,
+		},
+		.readCount = 5,
 		.buffers = { bufRadiance, bufGbuffer, },
 		.bufferCount = 2,
 	};
@@ -205,7 +220,7 @@ i32 main(i32, char * *) {
 		.dispatch = IntroDispatch_Image,
 		.write = { imgPresent },
 		.writeCount = 1,
-		.reads = { imgStbnScalar, imgStbnVec2, imgHistory },
+		.reads = { imgStbnScalar, imgStbnVec2, imgFilterOutput },
 		.readCount = 3,
 	};
 
@@ -213,6 +228,30 @@ i32 main(i32, char * *) {
 	intro_add_pass(&passGbuffer);
 	intro_add_pass(&passPropagate);
 	intro_add_pass(&passAccumulate);
+
+	// 5 tap filter
+	for (int i = 0; i < 5; i++) {
+		auto read = (i % 2 == 0) ? imgFilterOutput : imgFilterTemp;
+		auto write = (i % 2 == 0) ? imgFilterTemp : imgFilterOutput;
+		if (i == 0) {
+			read = imgHistory;
+		}
+		IntroPassDesc const passDescFilter {
+			.name = "filter",
+			.embedded = nullptr, // TODO embed
+			.sched = IntroSchedule_EveryFrame,
+			.dispatch = IntroDispatch_Image,
+			.write = { write },
+			.writeCount = 1,
+			.reads = { imgStbnScalar, imgStbnVec2, read, imgHistoryMoment, },
+			.readCount = 4,
+			.uniformPassIndex = i,
+			.buffers = { bufGbuffer, },
+			.bufferCount = 1,
+		};
+		intro_add_pass(&passDescFilter);
+	}
+
 	intro_add_pass(&passDescPost);
 
 	intro_set_present(imgPresent);

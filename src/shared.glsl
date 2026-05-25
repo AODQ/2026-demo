@@ -78,9 +78,10 @@ uniform float uSlots[64];
 // -- macro tuning
 // -----------------------------------------------------------------------------
 
-#define skPropagationIterations 0
+#define skPropagationIterations 2
 #define skSamplesPerPixel 1
 #define skConverge 1
+#define skAnimate 1
 
 #define skResolution ivec2(skResolutionX, skResolutionY)
 
@@ -123,25 +124,29 @@ Ray fnLookAtRay(f32v2 uv, f32v3 origin, f32v3 target, f32 fov) {
 	return Ray(origin, normalize(LA * f32v3(uv.y, uv.x, fov)));
 }
 
-bool fnWorldToScreen(vec3 P, vec3 ori, vec3 target, float fov, out vec2 outUv) {
-	vec3 fwd   = normalize(target - ori);
-	vec3 right = normalize(cross(fwd, vec3(0,1,0)));
-	vec3 upv   = cross(right, fwd);
-	vec3 v = P - ori;
-	float z = dot(v, fwd);
-	if (z <= 1e-4) return false;
-	float s = tan(fov * 0.5);
-	outUv = vec2(dot(v, right), dot(v, upv)) / (z * s);
+bool fnWorldToScreen(f32v3 P, f32v3 ori, f32v3 target, float fov, out vec2 outUv) {
+	f32v3 ww = normalize(target - ori);
+	f32v3 uu = normalize(cross(f32v3(0,1,0), ww));
+	f32v3 vv = cross(ww, uu);
+	f32v3 v  = P - ori;
+	f32 z = dot(v, ww);
+	if (z <= 1e-4) {
+		return false;
+	}
+	outUv = vec2(dot(v, uu), dot(v, vv)) * fov / z;
 	return true;
 }
 
 void fnCameraFromSlots(int frame, out vec3 ori, out vec3 tgt, out float fov) {
-	float wrapX = sin(float(frame)*0.01f)*0.3f + 2.7f;
+#if !skAnimate
+	frame = 0;
+#endif
+	float wrapX = float(frame*0.01);
 	float wrapY = 0.2f;
 	float wrapZ = 3.0;
 	ori = vec3(cos(wrapX), wrapY, sin(wrapX)) * wrapZ * 3.0;
 	tgt = (
-		vec3(0.0)
+		vec3(-2.0, 0.0f, 0.0f)
 	);
 	fov = 6.0f;
 }
@@ -514,9 +519,9 @@ f32v2 fnSceneMapLights(f32v3 o);
 f32v2 fnSceneMap(f32v3 o) {
 	f32v2 t = f32v2(1e9, -1.0);
 	float T = iTime;
-// #if skConverge
-	T = 0.0; // disable animation for convergence mode
-// #endif
+#if !skAnimate
+	// T = 0.0; // disable animation for convergence mode
+#endif
 	o.x += 2.0f;
 
 	// ground plane

@@ -252,6 +252,8 @@ typedef struct {
 	int bufferCount;
 	GLuint program;
 	GLint uTime, uFrame, uSlots, uMs;
+	GLint uPassIndex;
+	i32 passIndexValue;
 	GLint ctrlLoc[MAX_CONTROLS];
 	long long mtime;
 } Pass;
@@ -360,6 +362,7 @@ static void adopt(Pass* p, GLuint prog) {
 	p->uTime = glGetUniformLocation(prog, "iTime");
 	p->uMs = glGetUniformLocation(prog, "iMillis");
 	p->uFrame = glGetUniformLocation(prog, "iFrame");
+	p->uPassIndex = glGetUniformLocation(prog, "uPassIndex");
 	p->uSlots = glGetUniformLocation(prog, "uSlots");
 	for (int c = 0; c < E.ctrlCount; c++)
 		p->ctrlLoc[c] = glGetUniformLocation(prog, E.ctrl[c].name);
@@ -485,6 +488,7 @@ static void run_pass(Pass* p) {
 	if (p->uTime >= 0) glUniform1f(p->uTime, E.time);
 	if (p->uMs >= 0) glUniform1f(p->uMs, E.millis);
 	if (p->uFrame >= 0) glUniform1i(p->uFrame, E.frame);
+	if (p->uPassIndex >= 0) glUniform1i(p->uPassIndex, p->passIndexValue);
 	if (p->uSlots >= 0) glUniform1fv(p->uSlots, INTRO_SLOTS, E.slot);
 	for (int c = 0; c < E.ctrlCount; c++)
 		if (p->ctrlLoc[c] >= 0) glUniform1f(p->ctrlLoc[c], E.ctrl[c].value);
@@ -802,8 +806,8 @@ IntroImage intro_load_texture_png(const char* path) {
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	stbi_image_free(pixels);
 	LOG("loaded texture: %s (%dx%d)\n", path, w, h);
 	return E.imgCount++;
@@ -840,8 +844,8 @@ IntroImage intro_load_texture_array_png(const char* path, i32 layerCount) {
 
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
 	Img* im = &E.img[E.imgCount];
 	im->dbl = false;
@@ -889,6 +893,7 @@ void intro_add_pass(const IntroPassDesc* desc) {
 	p->bufferCount = desc->bufferCount;
 	for (int i = 0; i < desc->readCount; i++) p->reads[i] = desc->reads[i];
 	for (int i = 0; i < desc->bufferCount; i++) p->buffers[i] = desc->buffers[i];
+	p->passIndexValue = desc->uniformPassIndex;
 
 	bool fromDisk = false;
 #ifndef INTRO_SIZE

@@ -100,6 +100,8 @@ typedef struct {
 	IntroImage reads[INTRO_MAX_READS];
 	i32 readCount;
 
+	i32 uniformPassIndex;
+
 	IntroBuffer buffers[INTRO_MAX_BUFFERS];
 	i32 bufferCount;
 } IntroPassDesc;
